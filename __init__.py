@@ -23,6 +23,7 @@ import shlex
 import zlib
 import logging
 import threading
+import functools
 from datetime import datetime
 from flask import request, jsonify, send_file
 
@@ -523,6 +524,63 @@ def _docker_cmd(command, host_cfg=None):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Engine mode detection (v2.0.0) — distinguishes Swarm cluster vs standalone
+# Docker host. Cached longer than data caches because mode rarely changes
+# (only when an admin runs `docker swarm init` / `docker swarm leave`).
+# ---------------------------------------------------------------------------
+
+MODE_CACHE_TTL = 60  # seconds
+
+
+def _detect_mode(force=False):
+    """Return ``'swarm'`` or ``'standalone'`` for the configured cluster.
+
+    A host whose ``LocalNodeState`` is ``active`` or ``locked`` is part of an
+    active swarm — every other state (``inactive``, ``pending``, ``error``,
+    empty/unreachable) means the engine is running standalone.
+
+    Globally cached for ``MODE_CACHE_TTL`` seconds. The ``swarm_hosts`` config
+    name is preserved for backwards compatibility (v1.x); each entry is now
+    just a Docker engine endpoint regardless of whether swarm is active.
+    """
+    if not force:
+        cached = _cache_get('engine_mode')
+        if cached:
+            return cached
+    raw = _docker_cmd("docker info --format '{{.Swarm.LocalNodeState}}'")
+    state = (raw or '').strip().lower()
+    mode = 'swarm' if state in ('active', 'locked') else 'standalone'
+    # Use cache_set with a fresh ts so the longer TTL works even though the
+    # generic helper uses CACHE_TTL — we read it manually below.
+    with _cache_lock:
+        _cache['engine_mode'] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
+    return mode
+
+
+def _get_engine_mode_cached():
+    """Cache reader honouring the per-entry TTL set by ``_detect_mode``."""
+    with _cache_lock:
+        entry = _cache.get('engine_mode')
+        if entry and (time.time() - entry['ts']) < entry.get('ttl', MODE_CACHE_TTL):
+            return entry['data']
+    return None
+
+
+def _require_swarm():
+    """Guard for swarm-only API endpoints. Returns ``None`` if mode is swarm,
+    or a Flask-compatible ``(body, status)`` tuple otherwise — pattern matches
+    the rest of this module which returns dict/tuple from API handlers."""
+    mode = _get_engine_mode_cached() or _detect_mode()
+    if mode != 'swarm':
+        return {
+            'error': 'swarm-only endpoint',
+            'mode': mode,
+            'hint': 'This endpoint requires a Docker Swarm cluster. The configured engine is running in standalone mode.'
+        }, 422
+    return None
+
+
 def _docker_json(command, host_cfg=None):
     """Run docker command expecting JSON output. Returns parsed data or None."""
     raw = _docker_cmd(command, host_cfg)
@@ -942,7 +1000,12 @@ def _bg_poll_once():
     """Run a single poll cycle.
     Phase 1 (parallel): overview, nodes, services — independent.
     Phase 2 (after services finishes): stacks — derives from services cache.
+
+    No-op on standalone engines — `docker node ls`/`service ls`/`stack ls`
+    all error there, and there's nothing swarm-y to keep warm.
     """
+    if _detect_mode() != 'swarm':
+        return
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     phase1 = {
@@ -3950,9 +4013,61 @@ def _api_disk_auto_prune_run():
         return {'error': str(e)}, 500
 
 
+def _api_host_mode():
+    """GET — Engine mode probe consumed by the frontend on boot to decide
+    which tabs to render. Returns ``{"mode": "swarm" | "standalone",
+    "swarm_state": <raw docker info LocalNodeState>}``.
+
+    The frontend never trusts cached browser data for this — it fetches on
+    every UI mount so a swarm init/leave is reflected within ``MODE_CACHE_TTL``
+    server-side."""
+    raw = _docker_cmd("docker info --format '{{.Swarm.LocalNodeState}}'") or ''
+    state = raw.strip().lower()
+    mode = 'swarm' if state in ('active', 'locked') else 'standalone'
+    # Refresh server-side cache so subsequent _require_swarm() calls hit the
+    # same answer the UI just rendered.
+    with _cache_lock:
+        _cache['engine_mode'] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
+    return {'mode': mode, 'swarm_state': state or 'unknown'}
+
+
 # ---------------------------------------------------------------------------
 # Plugin entry point
 # ---------------------------------------------------------------------------
+
+# Routes that operate on Swarm primitives (nodes, services, stacks, balance,
+# policy, webhooks). They depend on `docker node`/`docker service`/`docker
+# stack` which are unavailable on a standalone engine. Wrapped at register
+# time with `_swarm_only_wrap`. Anything not in this set works on either
+# mode (containers, images, networks, volumes, disk, ui, config, …).
+_SWARM_ONLY_ROUTES = frozenset({
+    'overview', 'nodes', 'node-stats', 'node-action',
+    'services', 'service-detail', 'service-logs', 'service-scale',
+    'service-restart', 'service-rollback', 'service-update', 'service-remove',
+    'stacks', 'stack-detail', 'stack-compose', 'stack-logs',
+    'stack-stop', 'stack-start', 'stack-deploy', 'stack-remove',
+    'tasks', 'topology',
+    'load-balance', 'rebalance-service',
+    'balance/insights', 'balance/rebalance-all', 'balance/rebalance-status',
+    'metrics/history', 'metrics/trends',
+    'policy/audit', 'policy/checks', 'policy/apply', 'policy/appliers',
+    'webhooks', 'webhook-create', 'webhook-revoke',
+    'webhook/trigger',
+})
+
+
+def _swarm_only_wrap(handler):
+    """Decorate an API handler so it returns 422 when the engine is in
+    standalone mode. Idempotent — wrapping twice is safe but pointless."""
+    @functools.wraps(handler)
+    def wrapped(*args, **kwargs):
+        guard = _require_swarm()
+        if guard is not None:
+            return guard
+        return handler(*args, **kwargs)
+    wrapped.__swarm_only__ = True
+    return wrapped
+
 
 def register(app):
     """Register all plugin routes."""
@@ -4018,12 +4133,20 @@ def register(app):
         'disk/prune': _api_disk_prune,
         'disk/settings': _api_disk_settings,
         'disk/auto-prune/run': _api_disk_auto_prune_run,
+        # Engine mode probe (v2.0.0 — Swarm + standalone support)
+        'host-mode': _api_host_mode,
     }
 
     for path, handler in routes.items():
+        if path in _SWARM_ONLY_ROUTES:
+            handler = _swarm_only_wrap(handler)
         register_plugin_route(PLUGIN_ID, path, handler)
 
-    log.info(f"[{PLUGIN_ID}] Registered {len(routes)} routes")
+    log.info(
+        f"[{PLUGIN_ID}] Registered {len(routes)} routes "
+        f"({len(_SWARM_ONLY_ROUTES)} swarm-only, "
+        f"{len(routes) - len(_SWARM_ONLY_ROUTES)} mode-agnostic)"
+    )
 
 
 def start_background_tasks():

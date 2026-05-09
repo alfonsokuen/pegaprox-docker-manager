@@ -34,3 +34,22 @@ def test_version_semver():
     parts = MANIFEST["version"].split(".")
     assert len(parts) == 3, f"version must be MAJOR.MINOR.PATCH, got {MANIFEST['version']!r}"
     assert all(p.isdigit() for p in parts), MANIFEST["version"]
+
+
+def test_version_at_least_2_0_0():
+    """v2.0.0 introduced standalone Docker engine support."""
+    parts = tuple(int(p) for p in MANIFEST["version"].split("."))
+    assert parts >= (2, 0, 0), f"version must be >= 2.0.0, got {parts}"
+
+
+def test_name_dropped_swarm_qualifier():
+    """v2.0.0 renamed the plugin label: 'Docker Swarm Manager' → 'Docker Manager'
+    because it now also manages standalone hosts. The id stays 'docker_swarm'."""
+    assert MANIFEST["name"] == "Docker Manager", \
+        f"expected 'Docker Manager' label, got {MANIFEST['name']!r}"
+
+
+def test_description_mentions_both_modes():
+    desc = MANIFEST["description"].lower()
+    assert "swarm" in desc, "description must mention swarm support"
+    assert "standalone" in desc, "description must mention standalone support"

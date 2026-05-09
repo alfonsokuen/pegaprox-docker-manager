@@ -2,26 +2,31 @@
   <img src="https://pegaprox.com/pictures/pegaprox-logo.png" alt="PegaProx Logo" width="80"/>
 </p>
 
-<h1 align="center">PegaProx Docker Swarm Manager Plugin</h1>
+<h1 align="center">PegaProx Docker Manager Plugin</h1>
 
 <p align="center">
-  <strong>Monitor and manage Docker Swarm clusters directly from PegaProx</strong>
+  <strong>Manage Docker hosts — Swarm clusters or standalone engines — directly from PegaProx</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.14.3-blue" alt="Version"/>
-  <img src="https://img.shields.io/badge/pegaprox-0.9.0+-orange" alt="PegaProx"/>
+  <img src="https://img.shields.io/badge/version-2.0.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/pegaprox-0.9.9.3+-orange" alt="PegaProx"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License"/>
-  <img src="https://img.shields.io/badge/python-3.8+-yellow" alt="Python"/>
+  <img src="https://img.shields.io/badge/python-3.10+-yellow" alt="Python"/>
 </p>
 
 ---
 
 ## What is this?
 
-A PegaProx plugin that brings Docker Swarm cluster management into PegaProx's interface. Connect to your Swarm manager nodes via SSH and get full visibility and control over your Docker infrastructure — without leaving PegaProx.
+A PegaProx plugin that brings Docker host management into PegaProx's interface. Point it at any reachable Docker engine over SSH:
 
-Born from [Feature Request #152](https://github.com/PegaProx/project-pegaprox/issues/152) on the PegaProx project.
+- **Swarm clusters** — full feature set: nodes, services, stacks, balance, audit, webhooks, plus the standalone-mode set below.
+- **Standalone Docker hosts** — containers, images, networks, volumes, logs, disk-prune. Swarm-shaped tabs hide automatically.
+
+The plugin probes `docker info` on boot to decide which mode it's in; if you `docker swarm init` (or `leave`) while the UI is open, the sidebar re-renders within ~60s.
+
+Born from [Feature Request #152](https://github.com/PegaProx/project-pegaprox/issues/152) on the PegaProx project; the dual-mode rewrite was driven by [#286](https://github.com/PegaProx/project-pegaprox/issues/286) and [#381](https://github.com/PegaProx/project-pegaprox/issues/381).
 
 ## Screenshots
 

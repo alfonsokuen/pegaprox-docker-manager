@@ -1,8 +1,8 @@
 {
-    "name": "Docker Swarm Manager",
-    "version": "1.16.0",
+    "name": "Docker Manager",
+    "version": "2.0.0",
     "author": "IDKMANAGER",
-    "description": "Monitor and manage Docker Swarm clusters from PegaProx. View nodes, services, stacks, containers, logs, and resource usage via SSH.",
+    "description": "Manage Docker hosts (Swarm clusters or standalone engines) from PegaProx. Containers, images, networks, volumes, logs, and — when Swarm is active — nodes, services, stacks, balance, audit and webhooks.",
     "min_pegaprox": "0.9.9.3",
     "homepage": "",
     "license": "MIT",

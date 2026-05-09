@@ -73,6 +73,13 @@ const { useState, useEffect, useCallback, useRef } = React;
 
 const API = '/api/plugins/docker_swarm/api';
 
+// v2.0.0: tabs that depend on Docker Swarm primitives (`docker node|service|
+// stack|...`). Hidden when engine reports standalone. Sidebar nav, mode-flip
+// auto-bounce, and the legend tooltip all share this single source of truth.
+const SWARM_ONLY_TABS = new Set([
+  'nodes', 'services', 'stacks', 'loadbalance', 'trends', 'audit'
+]);
+
 async function api(path, opts = {}) {
   let res;
   try {
@@ -320,7 +327,34 @@ function DiskAutoPruneSettings({ toast }) {
 }
 
 // Dashboard — enhanced visual design
-function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading }) {
+function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engineMode }) {
+  // v2.0.0: standalone mode shows a friendly summary card instead of trying
+  // to render swarm KPIs. A full standalone dashboard with container/image
+  // counts is a follow-up (v2.1) — for now we steer users to the other tabs
+  // which all work in standalone.
+  if (engineMode === 'standalone') {
+    return <div className="card" style={{padding:32}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+        <div style={{width:40,height:40,borderRadius:10,background:'rgba(59,130,246,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,color:'#3b82f6'}}>D</div>
+        <div>
+          <h3 style={{fontSize:16,fontWeight:700,marginBottom:2}}>Docker Standalone</h3>
+          <div style={{fontSize:12,color:'var(--muted)'}}>El engine configurado no es parte de un Swarm cluster.</div>
+        </div>
+      </div>
+      <p style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>
+        Las funciones de Swarm (nodos, servicios, stacks, balance, auditoria) estan deshabilitadas. Usa las pestanas disponibles para gestionar este host:
+      </p>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8,fontSize:12}}>
+        <span className="badge badge-blue">Contenedores</span>
+        <span className="badge badge-blue">Redes</span>
+        <span className="badge badge-blue">Volumenes</span>
+        <span className="badge badge-blue">Imagenes</span>
+      </div>
+      <p style={{fontSize:11,color:'var(--muted)',marginTop:16,opacity:.7}}>
+        Para activar Swarm en este host: <code>docker swarm init</code>. Las pestanas swarm aparecen automaticamente tras ~60s.
+      </p>
+    </div>;
+  }
   if (!overview || overview.error) return <div className="card" style={{textAlign:'center',padding:60}}>
     <div style={{fontSize:40,marginBottom:12,opacity:.3}}>~</div>
     <p style={{color:'var(--muted)',marginBottom:8,fontSize:15}}>No hay conexion al Swarm</p>
@@ -2332,6 +2366,10 @@ function Audit({ data, onRefresh, toast }) {
 
 function App() {
   const [tab, setTab] = useState('dashboard');
+  // v2.0.0: engine mode probe — drives tab visibility + Dashboard layout.
+  // null until first fetch resolves; tabs render with placeholder labels until
+  // mode is known (~50ms on warm cache).
+  const [engineMode, setEngineMode] = useState(null);
   const [overview, setOverview] = useState(null);
   const [nodeStats, setNodeStats] = useState(null);
   const [nodes, setNodes] = useState(null);
@@ -2441,26 +2479,66 @@ function App() {
     else toast(r.error||'Error','error');
   };
 
-  const tabs = [
+  // v2.0.0: probe engine mode on mount + every 60s. Cheap (api/host-mode is
+  // server-cached for 60s), and a re-probe lets the UI update if an admin
+  // runs `docker swarm init` / `swarm leave` while the page is open.
+  useEffect(() => {
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const r = await api('host-mode');
+        if (!cancelled && r && (r.mode === 'swarm' || r.mode === 'standalone')) {
+          setEngineMode(r.mode);
+          // If user is sitting on a tab that's no longer valid (mode flipped
+          // to standalone while looking at Services), bounce to dashboard.
+          if (r.mode === 'standalone' && SWARM_ONLY_TABS.has(tab)) {
+            setTab('dashboard');
+          }
+        }
+      } catch (e) { /* leave engineMode null → tabs default to swarm-mode */ }
+    };
+    probe();
+    const id = setInterval(probe, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  // Intentionally exclude `tab` from deps — the bounce is best-effort, no
+  // need to re-arm the interval just because the user clicked around.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const allTabs = [
     {id:'dashboard', label:'Dashboard', icon:'#'},
-    {id:'nodes', label:'Nodos', icon:'N'},
-    {id:'services', label:'Servicios', icon:'S'},
-    {id:'stacks', label:'Stacks', icon:'K'},
+    {id:'nodes', label:'Nodos', icon:'N', swarmOnly:true},
+    {id:'services', label:'Servicios', icon:'S', swarmOnly:true},
+    {id:'stacks', label:'Stacks', icon:'K', swarmOnly:true},
     {id:'containers', label:'Contenedores', icon:'C'},
     {id:'networks', label:'Redes', icon:'R'},
     {id:'volumes', label:'Volumenes', icon:'V'},
     {id:'images', label:'Imagenes', icon:'I'},
-    {id:'loadbalance', label:'Balance', icon:'B'},
-    {id:'trends', label:'Tendencias', icon:'T'},
-    {id:'audit', label:'Auditoria', icon:'A'},
+    {id:'loadbalance', label:'Balance', icon:'B', swarmOnly:true},
+    {id:'trends', label:'Tendencias', icon:'T', swarmOnly:true},
+    {id:'audit', label:'Auditoria', icon:'A', swarmOnly:true},
     {id:'settings', label:'Ajustes', icon:'*'},
   ];
+  // While engineMode is null (initial render before first probe completes)
+  // we *show* swarm tabs — most users have swarm; standalone is the minority
+  // case and the brief flash of extra tabs is gentler than the inverse.
+  const tabs = (engineMode === 'standalone')
+    ? allTabs.filter(t => !t.swarmOnly)
+    : allTabs;
 
   return <>
     <div className="sidebar">
       <div style={{padding:'0 20px 16px',borderBottom:'1px solid var(--border)',marginBottom:8}}>
-        <div style={{fontSize:16,fontWeight:700,color:'var(--accent)'}}>Docker Swarm</div>
-        <div style={{fontSize:11,color:'var(--muted)'}}>PegaProx Plugin</div>
+        <div style={{fontSize:16,fontWeight:700,color:'var(--accent)'}}>Docker Manager</div>
+        <div style={{fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',gap:6}}>
+          PegaProx Plugin
+          {engineMode && <span style={{
+            fontSize:10, padding:'1px 6px', borderRadius:3,
+            background: engineMode === 'swarm' ? 'rgba(229,112,0,.15)' : 'rgba(59,130,246,.15)',
+            color: engineMode === 'swarm' ? 'var(--accent)' : '#3b82f6',
+            fontWeight:600, textTransform:'uppercase', letterSpacing:.5
+          }}>{engineMode}</span>}
+        </div>
       </div>
       {tabs.map(t => <div key={t.id} className={`sidebar-item ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}>
         <span style={{width:20,textAlign:'center',fontWeight:700,fontSize:14}}>{t.icon}</span> {t.label}
@@ -2483,7 +2561,7 @@ function App() {
         {tab==='dashboard' && <div className="countdown-bar" style={{width:`${(countdown/REFRESH_INTERVAL)*100}%`}}/>}
       </div>
 
-      {tab==='dashboard' && <Dashboard overview={overview} nodeStats={nodeStats} loadBalance={loadBalance} loading={loading} />}
+      {tab==='dashboard' && <Dashboard overview={overview} nodeStats={nodeStats} loadBalance={loadBalance} loading={loading} engineMode={engineMode} />}
       {tab==='nodes' && <Nodes data={nodes} />}
       {tab==='services' && <Services data={services} onScale={scaleService} onRestart={doRestart} onLogs={id=>showLogs(id,'service')} onTasks={showTasks} toast={toast} />}
       {tab==='stacks' && <Stacks data={stacks} onRemove={doStackRemove} toast={toast} />}

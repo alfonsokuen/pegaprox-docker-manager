@@ -1,8 +1,97 @@
 # Changelog
 
-All notable changes to the PegaProx Docker Swarm plugin are documented here.
+All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
+
+## [2.0.0] — 2026-05-09
+
+The plugin learns to talk to standalone Docker hosts in addition to Swarm
+clusters. Containers, images, networks, volumes, logs and disk-prune all work
+on either side; the Swarm-shaped UI (Nodos / Servicios / Stacks / Balance /
+Tendencias / Auditoria) folds away when the engine reports `LocalNodeState !=
+active|locked`. The plugin id stays `docker_swarm` so existing installs
+upgrade in place — only the user-visible label and the manifest version bump.
+
+### Changed (BREAKING — conceptual; no API endpoint shape changed)
+
+- **Plugin label:** `Docker Swarm Manager` → `Docker Manager`. The UI title in
+  the sidebar reflects the new dual-mode reality. Plugin **id** is unchanged
+  (`docker_swarm`), so the URL `/api/plugins/docker_swarm/api/ui`, the DB row
+  in `plugin_state`, and the manifest filename all stay as-is. No reinstall
+  required for v1.x users — just `git pull` + `systemctl restart pegaprox`.
+- **Description** rewritten to mention both modes.
+
+### Added — engine mode detection
+
+- `_detect_mode()` runs `docker info --format '{{.Swarm.LocalNodeState}}'` and
+  classifies the result: `active`/`locked` → `swarm`, anything else → `standalone`.
+  Globally cached for `MODE_CACHE_TTL = 60s` (mode rarely changes — only when
+  an admin runs `docker swarm init` or `docker swarm leave`).
+- New endpoint `GET /api/plugins/docker_swarm/api/host-mode` returns
+  `{ "mode": "swarm" | "standalone", "swarm_state": "<raw LocalNodeState>" }`.
+  The frontend probes this on mount and every 60s thereafter; if mode flips
+  while the page is open the sidebar re-renders without a page reload.
+
+### Added — swarm-only route guard
+
+- `_swarm_only_wrap()` wraps every Swarm-primitive endpoint at registration
+  time. When the engine is standalone, those endpoints return HTTP 422 with
+  `{"error":"swarm-only endpoint","mode":"standalone","hint":"…"}` instead of
+  hitting `docker node|service|stack` and erroring with a confusing
+  "This node is not a swarm manager" string.
+- 36 routes are now gated: `overview`, `nodes`, `node-*`, `services`,
+  `service-*`, `stacks`, `stack-*`, `tasks`, `topology`, `load-balance`,
+  `rebalance-service`, `balance/*`, `metrics/*`, `policy/*`, `webhooks`,
+  `webhook-*`. The remaining 19 routes (containers, images, networks,
+  volumes, logs, config, disk, ui, host-mode) work on either mode.
+- The whitelist is exhaustively enforced by `tests/test_swarm_only_gate.py`
+  — adding a new route to `register()` without classifying it correctly is
+  a test failure.
+
+### Added — adaptive frontend (`swarm.html`)
+
+- Top of the sidebar shows a small uppercase badge `SWARM` (orange) or
+  `STANDALONE` (blue) so users know which mode is live.
+- Tabs `Nodos`, `Servicios`, `Stacks`, `Balance`, `Tendencias`, `Auditoria`
+  hide automatically in standalone. If the user was sitting on one when mode
+  flipped (rare — `docker swarm leave` while the page is open), the UI bounces
+  to `Dashboard`.
+- `Dashboard` in standalone mode renders a friendly notice + suggested tabs
+  instead of the swarm KPIs. A full standalone-aware Dashboard with container/
+  image counts is queued for v2.1.
+
+### Added — background poller skips standalone
+
+- `_bg_poll_once()` short-circuits when `_detect_mode() != 'swarm'`. Previously
+  it would still try to fetch nodes/services/stacks every 30s, generating a
+  steady stream of harmless-but-noisy `[docker_swarm] Command failed on …` log
+  lines on standalone installs.
+
+### Added — tests
+
+- `tests/test_mode_detect.py` (8 tests) — every documented `LocalNodeState`
+  value, unreachable engine, cache hit/miss/expire, force-refresh.
+- `tests/test_swarm_only_gate.py` (7 tests) — 422 in standalone, pass-through
+  in swarm, wrap idempotency, whitelist completeness, standalone-safe set.
+- `tests/test_manifest.py` extended (3 tests) — `version >= 2.0.0`, label is
+  `Docker Manager`, description mentions both modes.
+- Total: 118 → 142 tests, all green on Python 3.10/3.11/3.12.
+
+### Migration from v1.16.0
+
+For users running v1.16.0 against a Swarm cluster: nothing to do. The plugin
+will detect `LocalNodeState == active`, set mode `swarm`, and behave
+identically — same tabs, same data, same endpoints, same caching. The only
+visible difference is the new badge in the sidebar and the renamed label.
+
+For users who want to point the plugin at a non-swarm Docker host:
+
+1. Edit `config.json` and set the `host` to a Docker engine that is **not**
+   `docker swarm init`-ed (or set the host's `docker swarm leave --force`
+   beforehand).
+2. Restart PegaProx (`systemctl restart pegaprox`) — within 60s the sidebar
+   re-renders with the standalone subset.
 
 ## [1.16.0] — 2026-05-09
 
