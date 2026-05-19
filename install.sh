@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # Install:
-#   curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-swarm/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-manager/main/install.sh | sudo bash
 #
 # What it does:
 #   1. Downloads the plugin to /opt/PegaProx/plugins/docker_swarm/
@@ -37,7 +37,7 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-REPO_URL="https://github.com/alfonsokuen/pegaprox-docker-swarm"
+REPO_URL="https://github.com/alfonsokuen/pegaprox-docker-manager"
 PEGAPROX_DIR="/opt/PegaProx"
 PLUGIN_DIR="$PEGAPROX_DIR/plugins/docker_swarm"
 MIN_PEGAPROX="0.9.9.3"

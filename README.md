@@ -71,7 +71,7 @@ Born from [Feature Request #152](https://github.com/PegaProx/project-pegaprox/is
 ### One-Line Install (Recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-swarm/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-manager/main/install.sh | sudo bash
 ```
 
 The installer will:
@@ -87,7 +87,7 @@ The installer will:
 
 ```bash
 cd /opt/PegaProx/plugins/
-git clone https://github.com/alfonsokuen/pegaprox-docker-swarm.git docker_swarm
+git clone https://github.com/alfonsokuen/pegaprox-docker-manager.git docker_swarm
 cp docker_swarm/config.example.json docker_swarm/config.json
 # Edit config.json with your Swarm SSH credentials
 chown -R pegaprox:pegaprox docker_swarm/
