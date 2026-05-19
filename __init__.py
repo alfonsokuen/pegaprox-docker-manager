@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Docker Swarm Manager — PegaProx Plugin
-Monitor and manage Docker Swarm clusters via SSH from PegaProx.
+Docker Manager — PegaProx Plugin
+Monitor and manage Docker hosts (Swarm clusters or standalone engines) via SSH from PegaProx.
 
 Connects to Swarm manager nodes over SSH (using paramiko, already in PegaProx),
 executes docker CLI commands, and exposes results via PegaProx plugin API.
@@ -32,7 +32,7 @@ from pegaprox.utils.auth import load_users
 from pegaprox.utils.audit import log_audit
 
 PLUGIN_ID = 'docker_swarm'
-PLUGIN_NAME = 'Docker Swarm Manager'
+PLUGIN_NAME = 'Docker Manager'
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(PLUGIN_DIR, 'state')
 KNOWN_HOSTS_PATH = os.path.join(PLUGIN_DIR, 'known_hosts')

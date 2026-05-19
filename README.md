@@ -92,7 +92,7 @@ cp docker_swarm/config.example.json docker_swarm/config.json
 # Edit config.json with your Swarm SSH credentials
 chown -R pegaprox:pegaprox docker_swarm/
 chmod 600 docker_swarm/config.json
-# Enable: Settings > Plugins > Rescan > Enable "Docker Swarm Manager"
+# Enable: Settings > Plugins > Rescan > Enable "Docker Manager"
 # As of v1.16.0 the plugin uses PegaProx 0.9.9.3+ native plugin frontend hook
 # (manifest `has_frontend: true`); no dashboard.js patching required.
 sudo systemctl restart pegaprox

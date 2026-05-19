@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# PegaProx Docker Swarm Manager Plugin — One-Line Installer (v1.16.0+)
+# PegaProx Docker Manager Plugin — One-Line Installer (v1.16.0+)
 # ============================================================================
 #
 # Install:
@@ -44,8 +44,8 @@ MIN_PEGAPROX="0.9.9.3"
 
 echo ""
 echo -e "${CYAN}+==============================================================+${NC}"
-echo -e "${CYAN}|   ${BOLD}PegaProx Docker Swarm Manager Plugin - Installer${NC}${CYAN}          |${NC}"
-echo -e "${CYAN}|   Monitor & manage Docker Swarm from PegaProx              |${NC}"
+echo -e "${CYAN}|   ${BOLD}PegaProx Docker Manager Plugin - Installer${NC}${CYAN}                |${NC}"
+echo -e "${CYAN}|   Monitor & manage Docker hosts and Swarm from PegaProx    |${NC}"
 echo -e "${CYAN}+==============================================================+${NC}"
 echo ""
 
