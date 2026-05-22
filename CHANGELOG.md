@@ -4,6 +4,39 @@ All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
 
+## [2.1.0] — 2026-05-22
+
+Multi-cluster support. The plugin can now manage **several Docker clusters** from
+one install and switch between them in the UI — built so IDKmanager can drive
+both the production Swarm (IAS01/02/03) and the QA/staging Swarm
+(qaserver01/02/03) from the same PegaProx.
+
+### Added
+- **`clusters` config shape** — `{"clusters": [{"id","name","hosts":[...]}], ...}`.
+  Each cluster has its own SSH host list. The legacy flat `swarm_hosts` list is
+  still accepted and surfaced as a single cluster with id `default` (fully
+  backwards compatible — existing installs need no config change).
+- **`GET /clusters`** endpoint — lists configured clusters with node count and
+  per-cluster engine mode; drives the UI selector.
+- **Cluster selector** in the header (shown only when >1 cluster is configured).
+  Switching reloads the active tab and re-probes engine mode for that cluster.
+- **Cluster-aware Settings tab** — add/remove clusters, edit each cluster's hosts
+  (now including the `key_file` field), test connections per host.
+- `?cluster=<id>` query param / `cluster` body field accepted on every endpoint.
+
+### Changed
+- All Docker command routing, the background poll cycle, disk auto-prune, the
+  load-balance fan-out and the smart-rebalance worker are now **scoped to the
+  active cluster**. Each runs against the right host list.
+- **Per-cluster cache isolation** — cache keys (incl. the engine-mode probe) are
+  namespaced by cluster id, so refreshing/invalidating one cluster never serves
+  or wipes another cluster's data.
+
+### Notes
+- Thread-pool workers and detached worker threads (background poll, rebalance
+  job) are explicitly re-pinned to their cluster, since Python thread-locals do
+  not propagate across threads.
+
 ## [2.0.0] — 2026-05-09
 
 The plugin learns to talk to standalone Docker hosts in addition to Swarm

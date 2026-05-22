@@ -1,17 +1,37 @@
 {
-    "swarm_hosts": [
+    "clusters": [
         {
-            "name": "Swarm-Manager-1",
-            "host": "192.168.1.10",
-            "user": "your-ssh-user",
-            "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"
+            "id": "prod",
+            "name": "Production",
+            "hosts": [
+                {
+                    "name": "Manager-1",
+                    "host": "192.168.1.10",
+                    "user": "your-ssh-user",
+                    "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"
+                },
+                {
+                    "name": "Manager-2 (password fallback)",
+                    "host": "192.168.1.11",
+                    "user": "your-ssh-user",
+                    "password": "only-if-no-key-file"
+                }
+            ]
         },
         {
-            "name": "Swarm-Manager-2 (password fallback)",
-            "host": "192.168.1.11",
-            "user": "your-ssh-user",
-            "password": "only-if-no-key-file"
+            "id": "qa",
+            "name": "QA / Staging",
+            "hosts": [
+                {
+                    "name": "qa-manager-1",
+                    "host": "192.168.2.10",
+                    "user": "your-ssh-user",
+                    "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"
+                }
+            ]
         }
     ],
-    "poll_interval": 30
+    "poll_interval": 30,
+
+    "_legacy_note": "A flat top-level 'swarm_hosts' list (without 'clusters') is still accepted and surfaced as a single cluster with id 'default'."
 }

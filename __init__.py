@@ -56,11 +56,13 @@ _CACHE_DEPS = {
 }
 
 def _invalidate(domain='services'):
-    """Invalidate cache keys related to a domain so the next request fetches fresh data."""
+    """Invalidate cache keys related to a domain so the next request fetches fresh data.
+    Scoped to the active cluster so invalidating prod never wipes QA's cache."""
     keys = _CACHE_DEPS.get(domain, (domain,))
+    pre = _active_cluster_id() + '::'
     with _cache_lock:
         for k in keys:
-            _cache.pop(k, None)
+            _cache.pop(pre + k, None)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +323,76 @@ def _save_config(cfg):
         json.dump(cfg, f, indent=4)
 
 
+# ---------------------------------------------------------------------------
+# Multi-cluster support (v2.1.0)
+# ---------------------------------------------------------------------------
+# Config may declare several Docker clusters under ``clusters`` (each with its
+# own ``id``, ``name`` and ``hosts``). Legacy single-cluster configs that only
+# have a flat ``swarm_hosts`` list keep working — they're surfaced as one
+# cluster with id ``default``.
+#
+# Which cluster a request/poll-cycle operates on is carried in a thread-local
+# (``_active.cluster_id``). The route wrapper sets it from the ``cluster`` query
+# param / body field; the background poller iterates every cluster. Because the
+# cache and SSH command routing both key off the active cluster, prod and QA
+# never bleed into each other.
+
+_active = threading.local()
+
+
+def _get_clusters(cfg=None):
+    """Return the normalized list of clusters. Always returns at least one."""
+    cfg = cfg if cfg is not None else _load_config()
+    clusters = cfg.get('clusters')
+    if clusters:
+        out = []
+        for i, c in enumerate(clusters):
+            cid = (c.get('id') or '').strip() or f'cluster{i}'
+            out.append({
+                'id': cid,
+                'name': c.get('name') or cid,
+                'hosts': c.get('hosts', []),
+            })
+        return out
+    # Legacy: a single cluster built from the flat swarm_hosts list.
+    return [{'id': 'default', 'name': 'Swarm', 'hosts': cfg.get('swarm_hosts', [])}]
+
+
+def _default_cluster_id():
+    cls = _get_clusters()
+    return cls[0]['id'] if cls else 'default'
+
+
+def _active_cluster_id():
+    return getattr(_active, 'cluster_id', None) or _default_cluster_id()
+
+
+def _active_cluster():
+    cid = _active_cluster_id()
+    clusters = _get_clusters()
+    for c in clusters:
+        if c['id'] == cid:
+            return c
+    return clusters[0] if clusters else {'id': 'default', 'name': 'Swarm', 'hosts': []}
+
+
+def _active_hosts():
+    """Hosts of the cluster bound to the current thread (request or poll cycle)."""
+    return _active_cluster().get('hosts', [])
+
+
+def _run_in_cluster(cid, fn, *args, **kwargs):
+    """Run ``fn`` with ``_active.cluster_id`` pinned to ``cid``, restoring the
+    previous value afterwards. Needed when fanning work out to ThreadPool
+    workers, which do NOT inherit the parent thread's thread-local."""
+    prev = getattr(_active, 'cluster_id', None)
+    _active.cluster_id = cid
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        _active.cluster_id = prev
+
+
 class _PersistentTOFUPolicy:
     """First-connect: auto-add the host key and persist it to known_hosts.
     Subsequent connections will find the key already in known_hosts; if the
@@ -510,8 +582,7 @@ def _ssh_exec(host_cfg_or_host, user=None, password=None, command='', timeout=15
 def _docker_cmd(command, host_cfg=None):
     """Run a docker command on the first available Swarm manager.
     Returns parsed JSON or raw string."""
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     if host_cfg:
         hosts = [host_cfg]
 
@@ -553,15 +624,17 @@ def _detect_mode(force=False):
     mode = 'swarm' if state in ('active', 'locked') else 'standalone'
     # Use cache_set with a fresh ts so the longer TTL works even though the
     # generic helper uses CACHE_TTL — we read it manually below.
+    mkey = _active_cluster_id() + '::engine_mode'
     with _cache_lock:
-        _cache['engine_mode'] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
+        _cache[mkey] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
     return mode
 
 
 def _get_engine_mode_cached():
     """Cache reader honouring the per-entry TTL set by ``_detect_mode``."""
+    mkey = _active_cluster_id() + '::engine_mode'
     with _cache_lock:
-        entry = _cache.get('engine_mode')
+        entry = _cache.get(mkey)
         if entry and (time.time() - entry['ts']) < entry.get('ttl', MODE_CACHE_TTL):
             return entry['data']
     return None
@@ -606,6 +679,7 @@ def _docker_json(command, host_cfg=None):
 # ---------------------------------------------------------------------------
 
 def _cache_get(key):
+    key = _active_cluster_id() + '::' + key
     with _cache_lock:
         entry = _cache.get(key)
         if entry and (time.time() - entry['ts']) < CACHE_TTL:
@@ -614,8 +688,15 @@ def _cache_get(key):
 
 
 def _cache_set(key, data):
+    key = _active_cluster_id() + '::' + key
     with _cache_lock:
         _cache[key] = {'data': data, 'ts': time.time()}
+
+
+def _cache_pop(key):
+    """Drop a single cache entry scoped to the active cluster."""
+    with _cache_lock:
+        _cache.pop(_active_cluster_id() + '::' + key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -855,8 +936,7 @@ def _fetch_stacks():
 
 def _fetch_containers():
     """Fetch containers from ALL swarm nodes via SSH."""
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     all_containers = []
 
     for h in hosts:
@@ -889,8 +969,7 @@ def _fetch_tasks(service_id):
 
 def _fetch_networks():
     """Fetch Docker networks from ALL nodes with IPAM details."""
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     all_nets = []
     seen = set()
 
@@ -934,8 +1013,7 @@ def _fetch_networks():
 
 def _fetch_volumes():
     """Fetch Docker volumes from ALL nodes with details."""
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     all_vols = []
 
     for h in hosts:
@@ -968,8 +1046,7 @@ def _fetch_volumes():
 
 def _fetch_images():
     """Fetch Docker images from ALL nodes."""
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     all_imgs = []
 
     for h in hosts:
@@ -1008,13 +1085,16 @@ def _bg_poll_once():
         return
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    # Pool workers don't inherit our thread-local cluster binding — capture it
+    # and re-pin each worker so fetchers hit the right cluster.
+    cid = _active_cluster_id()
     phase1 = {
         'overview': _fetch_overview,
         'nodes': _fetch_nodes,
         'services': _fetch_services,
     }
     with ThreadPoolExecutor(max_workers=3, thread_name_prefix='swarm-fetch') as pool:
-        futures = {pool.submit(fn): key for key, fn in phase1.items()}
+        futures = {pool.submit(_run_in_cluster, cid, fn): key for key, fn in phase1.items()}
         for future in as_completed(futures):
             key = futures[future]
             try:
@@ -1037,6 +1117,16 @@ def _bg_poll_once():
         log.error(f"[{PLUGIN_ID}] Metrics sample failed: {e}")
 
 
+def _bg_poll_all():
+    """Run one poll cycle for every configured cluster, each pinned to its own
+    thread-local cluster id so cache + SSH routing stay isolated."""
+    for c in _get_clusters():
+        try:
+            _run_in_cluster(c['id'], _bg_poll_once)
+        except Exception as e:
+            log.error(f"[{PLUGIN_ID}] Background poll error (cluster {c['id']}): {e}")
+
+
 def _bg_poll():
     """Background thread that refreshes cache periodically + runs disk auto-prune.
     poll_interval is re-read every iteration so Settings changes take effect live."""
@@ -1048,18 +1138,19 @@ def _bg_poll():
         interval = max(5, int(cfg_now.get('poll_interval', 30)))
 
         try:
-            _bg_poll_once()
+            _bg_poll_all()
         except Exception as e:
             log.error(f"[{PLUGIN_ID}] Background poll error: {e}")
 
-        # Disk auto-prune check según intervalo configurable
+        # Disk auto-prune check según intervalo configurable — run per cluster.
         try:
             auto = cfg_now.get('disk_auto_prune', {})
             if auto.get('enabled'):
                 check_min = auto.get('check_interval_min', 30)
                 now_ts = time.time()
                 if now_ts - last_disk_check >= check_min * 60:
-                    _disk_auto_prune_tick()
+                    for c in _get_clusters():
+                        _run_in_cluster(c['id'], _disk_auto_prune_tick)
                     last_disk_check = now_ts
         except Exception as e:
             log.error(f"[{PLUGIN_ID}] Auto-prune tick error: {e}")
@@ -1734,7 +1825,7 @@ def _api_policy_apply():
 
     # Real run: execute via SSH on a Swarm manager.
     out, errstr, rc = _ssh_exec(
-        _load_config().get('swarm_hosts', [{}])[0],
+        (_active_hosts() or [{}])[0],
         command=command,
         timeout=60,
     )
@@ -1758,10 +1849,9 @@ def _api_policy_apply():
 
     # Invalidate cache so next audit reflects the change
     _invalidate('services')
-    with _cache_lock:
-        _cache.pop(f'audit:', None)
-        _cache.pop(f'audit:all', None)
-        _cache.pop(f'audit:{service_name}', None)
+    _cache_pop('audit:')
+    _cache_pop('audit:all')
+    _cache_pop(f'audit:{service_name}')
 
     return {
         'service': service_name,
@@ -2607,7 +2697,7 @@ def _api_container_action():
 
     if host:
         cfg = _load_config()
-        target = next((h for h in cfg.get('swarm_hosts', []) if h['host'] == host), None)
+        target = next((h for h in _active_hosts() if h['host'] == host), None)
         if target:
             result = _docker_cmd(cmd, host_cfg=target)
         else:
@@ -2647,29 +2737,45 @@ def _api_node_action():
     return {'error': f'Node update failed'}, 500
 
 
+def _mask_host(h):
+    """Mask password + annotate auth method for a host dict (config display)."""
+    safe = dict(h)
+    if safe.get('password'):
+        safe['password'] = '***'
+    safe['auth_method'] = 'key' if safe.get('key_file') else 'password'
+    return safe
+
+
 def _api_get_config():
-    """GET — Return plugin config (admin only, masks password)."""
+    """GET — Return plugin config (admin only, masks passwords).
+
+    Returns the multi-cluster shape (``clusters``) plus a legacy ``swarm_hosts``
+    mirror (first cluster's hosts) for backwards compatibility."""
     err = _require_admin()
     if err:
         return err
     cfg = _load_config()
-    # Mask passwords, expose key_file and auth_method
-    safe_hosts = []
-    for h in cfg.get('swarm_hosts', []):
-        safe = dict(h)
-        if safe.get('password'):
-            safe['password'] = '***'
-        # Indicate which auth method is active
-        safe['auth_method'] = 'key' if safe.get('key_file') else 'password'
-        safe_hosts.append(safe)
+    clusters = []
+    for c in _get_clusters(cfg):
+        clusters.append({
+            'id': c['id'],
+            'name': c['name'],
+            'hosts': [_mask_host(h) for h in c.get('hosts', [])],
+        })
     return {
-        'swarm_hosts': safe_hosts,
+        'clusters': clusters,
+        'swarm_hosts': clusters[0]['hosts'] if clusters else [],
         'poll_interval': cfg.get('poll_interval', 30),
     }
 
 
 def _api_save_config():
-    """POST — Save plugin config (admin only). Body: {swarm_hosts, poll_interval}"""
+    """POST — Save plugin config (admin only).
+
+    Body: ``{clusters: [{id,name,hosts}], poll_interval}`` (preferred) or the
+    legacy ``{swarm_hosts, poll_interval}`` (writes the lone ``default`` cluster).
+    Masked passwords (``***``) are preserved from the stored config, matched by
+    (cluster id, host)."""
     err = _require_admin()
     if err:
         return err
@@ -2680,24 +2786,37 @@ def _api_save_config():
     if 'poll_interval' in data:
         cfg['poll_interval'] = max(10, min(300, int(data['poll_interval'])))
 
-    if 'swarm_hosts' in data:
-        new_hosts = []
-        for h in data['swarm_hosts']:
-            host_entry = {
-                'name': h.get('name', ''),
-                'host': h.get('host', ''),
-                'user': h.get('user', ''),
-                'key_file': h.get('key_file', ''),
-                'password': h.get('password', ''),
-            }
-            # If password is masked, keep the old one
-            if host_entry['password'] == '***':
-                for old in cfg.get('swarm_hosts', []):
-                    if old.get('host') == host_entry['host']:
-                        host_entry['password'] = old.get('password', '')
-                        break
-            new_hosts.append(host_entry)
-        cfg['swarm_hosts'] = new_hosts
+    # Build a lookup of stored passwords keyed by (cluster_id, host) so the UI
+    # can round-trip masked entries without leaking or losing secrets.
+    old_pw = {}
+    for oc in _get_clusters(cfg):
+        for oh in oc.get('hosts', []):
+            old_pw[(oc['id'], oh.get('host'))] = oh.get('password', '')
+
+    def _clean_host(h, cid):
+        entry = {
+            'name': h.get('name', ''),
+            'host': h.get('host', ''),
+            'user': h.get('user', ''),
+            'key_file': h.get('key_file', ''),
+            'password': h.get('password', ''),
+        }
+        entry.pop('auth_method', None)
+        if entry['password'] == '***':
+            entry['password'] = old_pw.get((cid, entry['host']), '')
+        return entry
+
+    if 'clusters' in data:
+        new_clusters = []
+        for i, c in enumerate(data['clusters']):
+            cid = (c.get('id') or '').strip() or f'cluster{i}'
+            hosts = [_clean_host(h, cid) for h in c.get('hosts', [])]
+            new_clusters.append({'id': cid, 'name': c.get('name') or cid, 'hosts': hosts})
+        cfg['clusters'] = new_clusters
+        cfg.pop('swarm_hosts', None)  # multi-cluster shape supersedes the legacy list
+    elif 'swarm_hosts' in data:
+        # Legacy single-cluster save — match passwords against the default cluster.
+        cfg['swarm_hosts'] = [_clean_host(h, _default_cluster_id()) for h in data['swarm_hosts']]
 
     _save_config(cfg)
     log_audit(_get_username(), 'docker.config_saved', 'Docker Swarm plugin config updated')
@@ -2781,7 +2900,7 @@ def _api_image_pull():
     qimg = shlex.quote(image)
     if host:
         cfg = _load_config()
-        target = next((h for h in cfg.get('swarm_hosts', []) if h['host'] == host), None)
+        target = next((h for h in _active_hosts() if h['host'] == host), None)
         if target:
             out, err_out, code = _ssh_exec(target, command=f'docker pull {qimg} 2>&1', timeout=120)
             if code == 0:
@@ -2809,7 +2928,7 @@ def _api_image_remove():
     cmd = f'docker rmi {shlex.quote(image_id)} 2>&1'
     if host:
         cfg = _load_config()
-        target = next((h for h in cfg.get('swarm_hosts', []) if h['host'] == host), None)
+        target = next((h for h in _active_hosts() if h['host'] == host), None)
         if target:
             result = _docker_cmd(cmd, host_cfg=target)
         else:
@@ -2836,7 +2955,7 @@ def _api_volume_remove():
     cmd = f'docker volume rm {shlex.quote(name)} 2>&1'
     if host:
         cfg = _load_config()
-        target = next((h for h in cfg.get('swarm_hosts', []) if h['host'] == host), None)
+        target = next((h for h in _active_hosts() if h['host'] == host), None)
         if target:
             result = _docker_cmd(cmd, host_cfg=target)
         else:
@@ -2944,8 +3063,7 @@ def _api_node_stats():
     err = _require_admin()
     if err:
         return err
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     if not hosts:
         return {'error': 'No hosts configured'}, 400
 
@@ -2983,10 +3101,10 @@ def _api_load_balance():
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import math
 
-    cfg = _load_config()
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     if not hosts:
         return {'error': 'No hosts configured'}, 400
+    _cluster = _active_cluster_id()  # pin pool workers to this cluster
 
     # Get node list from Swarm to map hostnames to IDs
     swarm_nodes = _docker_json('docker node ls --format "{{json .}}"') or []
@@ -3067,7 +3185,7 @@ def _api_load_balance():
     # Fetch all nodes in parallel
     nodes_data = []
     with ThreadPoolExecutor(max_workers=len(hosts), thread_name_prefix='lb-fetch') as pool:
-        futures = {pool.submit(fetch_node_data, h): h for h in hosts}
+        futures = {pool.submit(_run_in_cluster, _cluster, fetch_node_data, h): h for h in hosts}
         for future in as_completed(futures):
             try:
                 nodes_data.append(future.result())
@@ -3358,6 +3476,9 @@ def _start_rebalance_job(candidates, delay_sec, username):
     Returns the job_id immediately. Status is observable via _rebalance_jobs."""
     _rebalance_jobs_prune()
     job_id = _uuid_mod.uuid4().hex[:16]
+    # Capture the cluster this job targets — the worker runs in a fresh daemon
+    # thread that does NOT inherit our thread-local, so it must be re-pinned.
+    job_cluster = _active_cluster_id()
     with _rebalance_jobs_lock:
         _rebalance_jobs[job_id] = {
             'job_id': job_id,
@@ -3375,6 +3496,7 @@ def _start_rebalance_job(candidates, delay_sec, username):
         }
 
     def _worker():
+        _active.cluster_id = job_cluster  # pin this thread to the target cluster
         for idx, c in enumerate(candidates):
             name = c['name']
             with _rebalance_jobs_lock:
@@ -3447,9 +3569,8 @@ def _start_rebalance_job(candidates, delay_sec, username):
         # Invalidate caches so next UI read shows fresh state
         try:
             _invalidate('services')
-            with _cache_lock:
-                _cache.pop('load_balance', None)
-                _cache.pop('balance_insights', None)
+            _cache_pop('load_balance')
+            _cache_pop('balance_insights')
         except Exception:
             pass
 
@@ -3861,8 +3982,7 @@ def _api_disk_prune():
     if target not in _PRUNE_TARGETS:
         return {'error': f'Invalid target. Valid: {list(_PRUNE_TARGETS.keys())}'}, 400
 
-    cfg = _load_config()
-    all_hosts = cfg.get('swarm_hosts', [])
+    all_hosts = _active_hosts()
     if not all_hosts:
         return {'error': 'No swarm hosts configured'}, 400
 
@@ -3970,7 +4090,7 @@ def _disk_auto_prune_tick():
         return
     threshold = auto.get('threshold_pct', 80)
     targets = auto.get('targets', ['build-cache', 'images'])
-    hosts = cfg.get('swarm_hosts', [])
+    hosts = _active_hosts()
     now_iso = datetime.now().isoformat()
     total_freed = 0
     actions = []
@@ -4026,8 +4146,9 @@ def _api_host_mode():
     mode = 'swarm' if state in ('active', 'locked') else 'standalone'
     # Refresh server-side cache so subsequent _require_swarm() calls hit the
     # same answer the UI just rendered.
+    mkey = _active_cluster_id() + '::engine_mode'
     with _cache_lock:
-        _cache['engine_mode'] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
+        _cache[mkey] = {'data': mode, 'ts': time.time(), 'ttl': MODE_CACHE_TTL}
     return {'mode': mode, 'swarm_state': state or 'unknown'}
 
 
@@ -4067,6 +4188,49 @@ def _swarm_only_wrap(handler):
         return handler(*args, **kwargs)
     wrapped.__swarm_only__ = True
     return wrapped
+
+
+def _cluster_scoped(handler):
+    """Bind the active cluster for the duration of a request from the ``cluster``
+    query param (GET) or body field (POST). Falls back to the first configured
+    cluster when absent or unknown. Must wrap OUTSIDE ``_swarm_only_wrap`` so the
+    swarm-mode probe runs against the correct cluster."""
+    @functools.wraps(handler)
+    def wrapped(*args, **kwargs):
+        cid = None
+        try:
+            cid = request.args.get('cluster')
+            if not cid and request.method == 'POST':
+                body = request.get_json(silent=True) or {}
+                cid = body.get('cluster')
+        except Exception:
+            cid = None
+        valid = {c['id'] for c in _get_clusters()}
+        if cid not in valid:
+            cid = _default_cluster_id()
+        _active.cluster_id = cid
+        try:
+            return handler(*args, **kwargs)
+        finally:
+            _active.cluster_id = None
+    return wrapped
+
+
+def _api_clusters():
+    """GET — List configured clusters with node count + current engine mode.
+    Drives the cluster selector in the UI. Not admin-gated (read-only metadata)."""
+    out = []
+    for c in _get_clusters():
+        mode = _run_in_cluster(
+            c['id'], lambda: (_get_engine_mode_cached() or _detect_mode())
+        )
+        out.append({
+            'id': c['id'],
+            'name': c['name'],
+            'hosts': len(c.get('hosts', [])),
+            'mode': mode,
+        })
+    return {'clusters': out, 'default': _default_cluster_id()}
 
 
 def register(app):
@@ -4135,11 +4299,16 @@ def register(app):
         'disk/auto-prune/run': _api_disk_auto_prune_run,
         # Engine mode probe (v2.0.0 — Swarm + standalone support)
         'host-mode': _api_host_mode,
+        # Multi-cluster (v2.1.0)
+        'clusters': _api_clusters,
     }
 
     for path, handler in routes.items():
         if path in _SWARM_ONLY_ROUTES:
             handler = _swarm_only_wrap(handler)
+        # Cluster binding must be the OUTERMOST wrapper so the swarm-mode probe
+        # inside _swarm_only_wrap evaluates against the request's target cluster.
+        handler = _cluster_scoped(handler)
         register_plugin_route(PLUGIN_ID, path, handler)
 
     log.info(
@@ -4152,9 +4321,8 @@ def register(app):
 def start_background_tasks():
     """Start background polling thread."""
     global _bg_thread
-    cfg = _load_config()
-    if not cfg.get('swarm_hosts'):
-        log.info(f"[{PLUGIN_ID}] No Swarm hosts configured, skipping background poll")
+    if not any(c.get('hosts') for c in _get_clusters()):
+        log.info(f"[{PLUGIN_ID}] No Docker hosts configured, skipping background poll")
         return
 
     _bg_stop.clear()

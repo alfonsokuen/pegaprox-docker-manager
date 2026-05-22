@@ -49,8 +49,9 @@ def test_detect_mode_cache_expires(plugin):
     """Past MODE_CACHE_TTL the cache is stale and re-probes."""
     with patch.object(plugin, "_docker_cmd", return_value="active") as m:
         plugin._detect_mode(force=True)
+        mkey = plugin._active_cluster_id() + "::engine_mode"
         with plugin._cache_lock:
-            plugin._cache["engine_mode"]["ts"] = time.time() - (plugin.MODE_CACHE_TTL + 1)
+            plugin._cache[mkey]["ts"] = time.time() - (plugin.MODE_CACHE_TTL + 1)
         plugin._detect_mode()
     assert m.call_count == 2
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/pegaprox-0.9.9.3+-orange" alt="PegaProx"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License"/>
   <img src="https://img.shields.io/badge/python-3.10+-yellow" alt="Python"/>
@@ -106,23 +106,43 @@ sudo bash /opt/PegaProx/plugins/docker_swarm/uninstall.sh
 
 ## Configuration
 
-Edit `config.json` or use the **Settings** tab in the plugin UI:
+Edit `config.json` or use the **Settings** tab in the plugin UI.
+
+**Multi-cluster (v2.1.0+)** — manage several clusters and switch between them from
+the header selector:
 
 ```json
 {
-    "swarm_hosts": [
+    "clusters": [
         {
-            "name": "Manager-1",
-            "host": "192.168.1.10",
-            "user": "your-user",
-            "password": "your-password"
+            "id": "prod",
+            "name": "Production",
+            "hosts": [
+                { "name": "Manager-1", "host": "192.168.1.10", "user": "your-user", "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519" }
+            ]
+        },
+        {
+            "id": "qa",
+            "name": "QA / Staging",
+            "hosts": [
+                { "name": "qa-manager-1", "host": "192.168.2.10", "user": "your-user", "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519" }
+            ]
         }
     ],
     "poll_interval": 30
 }
 ```
 
-You can add multiple hosts for redundancy. The plugin uses the first available manager.
+Within a cluster you can list multiple hosts for redundancy — the plugin uses the
+first reachable manager. Each cluster is fully isolated (its own SSH routing and
+cache). Cluster `id` must be stable and unique.
+
+**Legacy single-cluster** — a flat top-level `swarm_hosts` list (no `clusters`)
+still works and is surfaced as one cluster with id `default`:
+
+```json
+{ "swarm_hosts": [ { "name": "Manager-1", "host": "192.168.1.10", "user": "your-user", "password": "your-password" } ], "poll_interval": 30 }
+```
 
 ## Architecture
 
