@@ -4,6 +4,53 @@ All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
 
+## [2.1.0] — 2026-05-26
+
+Bilingual UI (English + Spanish) and a privacy fix. The frontend was authored
+entirely in Spanish and ignored the operator's PegaProx language; on a customer
+install (UltraCORP) this surfaced both as wrong-language labels and as a leak of
+IDK's internal infrastructure baked into the Settings placeholders.
+
+### Added — i18n (English + Spanish)
+
+- New translation layer in `swarm.html`: a `detectLang()` resolver, a 246-entry
+  `I18N` Spanish→English dictionary, and a `t(key, params)` helper with
+  `{name}`-style interpolation. Spanish source strings are the dictionary KEYS,
+  so any unmapped string degrades gracefully to readable Spanish instead of a
+  missing-key placeholder.
+- **Locale auto-detection.** PegaProx exposes no documented API to hand a plugin
+  its chosen locale, so detection is layered and defensive: `?lang=` query param
+  → our own `docker_swarm_lang` override → the PegaProx core locale read from the
+  parent/top window's `localStorage` (same-origin; tries `locale`, `lang`,
+  `language`, `i18nextLng`, `pegaprox_locale`, … ) → parent `<html lang>` →
+  `navigator.language` → default `en`.
+- **Explicit ES/EN toggle** in the top bar (next to Refresh) that always wins and
+  persists to `localStorage`, so the language is correct regardless of how
+  PegaProx stores its own preference.
+- All ~200 user-visible strings across every tab (Dashboard, Nodes, Services,
+  Service detail, Stacks, Containers, Networks, Volumes, Images, Settings, Load
+  Balance, Trends, Audit), plus toasts, confirms, modals, table headers,
+  placeholders and tooltips, now render through `t()`.
+
+### Fixed — internal-config leak (privacy)
+
+- The Settings → Swarm Hosts form shipped placeholders hardcoded with IDK's real
+  production values (`IASERVER01`, `190.160.10.129`, `alfonso`). On any customer
+  install these rendered as ghost text in the empty fields. Replaced with generic
+  examples (`e.g. swarm-manager-1` / `e.g. 192.168.1.10` / `e.g. ssh-user`),
+  themselves translated. `config.example.json` was already clean; this was
+  frontend-only.
+
+### Notes
+
+- No backend, API, plugin id, or endpoint changes — `docker_swarm` upgrades in
+  place (`git pull` + `systemctl restart pegaprox`). The auto-patch persistence
+  layer is unaffected (this release touches only the served static `swarm.html`
+  plus manifest/README/changelog).
+- Verified: esbuild JSX parse clean, dictionary has no duplicate keys, headless
+  SSR render of the full component tree in both locales (English vs Spanish
+  output confirmed, no render-time exceptions).
+
 ## [2.0.0] — 2026-05-09
 
 The plugin learns to talk to standalone Docker hosts in addition to Swarm

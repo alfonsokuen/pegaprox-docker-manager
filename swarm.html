@@ -71,6 +71,302 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
+// ============== i18n (v2.1.0) ==============
+// UI authored in Spanish; we keep the Spanish strings as the translation KEYS
+// (missing entry => readable Spanish fallback) and map them to English.
+// PegaProx exposes no documented locale API to plugins, so detect defensively
+// from several sources and expose an explicit ES/EN toggle that always wins.
+function detectLang() {
+  const norm = v => { if(!v) return null; v=String(v).replace(/^["']|["']$/g,'').trim().toLowerCase(); return v.startsWith('es')?'es':v.startsWith('en')?'en':null; };
+  try { const n = norm(new URLSearchParams(location.search).get('lang')); if(n) return n; } catch(e){}
+  try { const o = norm(localStorage.getItem('docker_swarm_lang')); if(o) return o; } catch(e){}
+  const stores = [];
+  try { stores.push(localStorage); } catch(e){}
+  try { if (window.parent && window.parent!==window) stores.push(window.parent.localStorage); } catch(e){}
+  try { if (window.top && window.top!==window && window.top!==window.parent) stores.push(window.top.localStorage); } catch(e){}
+  const keys = ['locale','lang','language','i18nextLng','pegaprox_locale','pegaprox_lang','app_locale','userLang','vue-i18n-locale'];
+  for (const s of stores) { if(!s) continue; for (const k of keys) { let v=null; try{ v=s.getItem(k);}catch(e){continue;} const n=norm(v); if(n) return n; } }
+  for (const w of [window.parent, window.top]) { try { const n = norm(w.document.documentElement.lang); if(n) return n; } catch(e){} }
+  return norm(navigator.language) || 'en';
+}
+let LANG = detectLang();
+try { document.documentElement.lang = LANG; } catch(e){}
+function setLang(l){ try { localStorage.setItem('docker_swarm_lang', l); } catch(e){} location.reload(); }
+
+const I18N = {
+  // "<spanish source>": { en: "<english>" },
+  // === Sparkline / generic ===
+  "sin datos": { en: "no data" },
+  "Cargando…": { en: "Loading…" },
+  "Sin datos": { en: "No data" },
+  // === DiskPruneBar ===
+  "Imágenes >24h": { en: "Images >24h" },
+  "Contenedores parados": { en: "Stopped containers" },
+  "Redes no usadas": { en: "Unused networks" },
+  "Todo (seguro)": { en: "All (safe)" },
+  "Volúmenes huérfanos": { en: "Orphaned volumes" },
+  "TODO + volúmenes": { en: "ALL + volumes" },
+  "⚠️  {label}\n\nEsta acción afectará TODOS los nodos. {detail}\n\n¿Continuar?": { en: "⚠️  {label}\n\nThis action will affect ALL nodes. {detail}\n\nContinue?" },
+  "Puede borrar datos de volúmenes no montados.": { en: "May delete data from unmounted volumes." },
+  "Es reversible (solo recupera espacio).": { en: "It is reversible (only reclaims space)." },
+  "Limpieza manual": { en: "Manual cleanup" },
+  "Detalle por nodo": { en: "Per-node detail" },
+  // === DiskAutoPruneSettings ===
+  "Auto-prune guardado": { en: "Auto-prune saved" },
+  "Error de red": { en: "Network error" },
+  "¿Ejecutar auto-prune ahora en los nodos sobre el umbral?": { en: "Run auto-prune now on nodes above the threshold?" },
+  "Auto-prune ejecutado": { en: "Auto-prune executed" },
+  "🧹 Auto-prune de disco": { en: "🧹 Disk auto-prune" },
+  "Ejecuta limpieza automática en cada nodo cuyo disco supere el umbral.": { en: "Runs automatic cleanup on each node whose disk exceeds the threshold." },
+  "No toca volúmenes": { en: "Does not touch volumes" },
+  " (prohibido en modo automático por seguridad).": { en: " (forbidden in automatic mode for safety)." },
+  "Activo": { en: "Enabled" },
+  "Desactivado": { en: "Disabled" },
+  "Umbral disco (%)": { en: "Disk threshold (%)" },
+  "Se dispara cuando / supera este porcentaje en cualquier nodo": { en: "Triggers when / exceeds this percentage on any node" },
+  "Revisar cada (min)": { en: "Check every (min)" },
+  "Qué limpiar (en orden)": { en: "What to clean (in order)" },
+  "Última ejecución: {time}": { en: "Last run: {time}" },
+  "Liberado:": { en: "Reclaimed:" },
+  "Guardando…": { en: "Saving…" },
+  "💾 Guardar política": { en: "💾 Save policy" },
+  "▶ Ejecutar ahora": { en: "▶ Run now" },
+  // === Dashboard ===
+  "El engine configurado no es parte de un Swarm cluster.": { en: "The configured engine is not part of a Swarm cluster." },
+  "Las funciones de Swarm (nodos, servicios, stacks, balance, auditoria) estan deshabilitadas. Usa las pestanas disponibles para gestionar este host:": { en: "Swarm features (nodes, services, stacks, balance, audit) are disabled. Use the available tabs to manage this host:" },
+  "Contenedores": { en: "Containers" },
+  "Redes": { en: "Networks" },
+  "Volumenes": { en: "Volumes" },
+  "Imagenes": { en: "Images" },
+  "Para activar Swarm en este host:": { en: "To enable Swarm on this host:" },
+  ". Las pestanas swarm aparecen automaticamente tras ~60s.": { en: ". The swarm tabs appear automatically after ~60s." },
+  "No hay conexion al Swarm": { en: "No connection to the Swarm" },
+  "Configura un host en la seccion Ajustes": { en: "Configure a host in the Settings section" },
+  "Nodos": { en: "Nodes" },
+  "Servicios": { en: "Services" },
+  "Recursos por Nodo": { en: "Resources per Node" },
+  "CPU últimas 24h": { en: "CPU last 24h" },
+  "RAM últimas 24h": { en: "RAM last 24h" },
+  "Disco": { en: "Disk" },
+  "Acciones afectan TODOS los nodos": { en: "Actions affect ALL nodes" },
+  "{r} recuperable": { en: "{r} reclaimable" },
+  "En vivo — Actualizado: {time}": { en: "Live — Updated: {time}" },
+  "Arquitectura": { en: "Architecture" },
+  // === Nodes ===
+  "Sin nodos": { en: "No nodes" },
+  // === ServiceDetail ===
+  "Acceso denegado": { en: "Access denied" },
+  "Mostrar valores reales de variables sensibles? Esta acción queda registrada en el audit log.": { en: "Show real values of sensitive variables? This action is recorded in the audit log." },
+  "Servicio actualizado": { en: "Service updated" },
+  "Rollback este servicio a la version anterior?": { en: "Roll this service back to the previous version?" },
+  "Rollback exitoso": { en: "Rollback successful" },
+  "Reiniciado": { en: "Restarted" },
+  "ELIMINAR servicio {id}?": { en: "DELETE service {id}?" },
+  "Eliminado": { en: "Deleted" },
+  "Cargando servicio...": { en: "Loading service..." },
+  "Detalles": { en: "Details" },
+  "Variables de Entorno": { en: "Environment Variables" },
+  "Recursos": { en: "Resources" },
+  "Network & Puertos": { en: "Network & Ports" },
+  "← Volver": { en: "← Back" },
+  "Rollback disponible. Imagen anterior: {img}": { en: "Rollback available. Previous image: {img}" },
+  "Valores sensibles ocultos": { en: "Sensitive values hidden" },
+  "Ocultar": { en: "Hide" },
+  "Mostrar reales (admin)": { en: "Show real (admin)" },
+  "No hay variables de entorno": { en: "No environment variables" },
+  "No hay labels": { en: "No labels" },
+  "No hay container labels": { en: "No container labels" },
+  "Tipo": { en: "Type" },
+  "No hay mounts": { en: "No mounts" },
+  "No hay constraints": { en: "No constraints" },
+  "No hay preferences": { en: "No preferences" },
+  "No hay configs": { en: "No configs" },
+  "No hay secrets": { en: "No secrets" },
+  "Nombre": { en: "Name" },
+  "Nodo": { en: "Node" },
+  "Estado": { en: "State" },
+  "Actualizar": { en: "Refresh" },
+  // === Services ===
+  "Sin servicios": { en: "No services" },
+  "Filtrar servicios...": { en: "Filter services..." },
+  "Servicio": { en: "Service" },
+  "Acciones": { en: "Actions" },
+  "{n} de {total} servicios": { en: "{n} of {total} services" },
+  // === Stacks ===
+  "Sin stacks": { en: "No stacks" },
+  "Mostrar valores reales de variables sensibles? Requiere admin y queda registrado en el audit log.": { en: "Show real values of sensitive variables? Requires admin and is recorded in the audit log." },
+  "Stack desplegado": { en: "Stack deployed" },
+  "Carga el compose primero": { en: "Load the compose first" },
+  "Redesplegar stack {name}? Esto actualizara los servicios.": { en: "Redeploy stack {name}? This will update the services." },
+  "Stack {name} redesplegado": { en: "Stack {name} redeployed" },
+  "{n} servicios": { en: "{n} services" },
+  "Detener stack {name}? Todos los servicios se escalaran a 0.": { en: "Stop stack {name}? All services will be scaled to 0." },
+  "Estado Tasks": { en: "Task Status" },
+  "Puertos": { en: "Ports" },
+  "{name} reiniciado": { en: "{name} restarted" },
+  "Escalado": { en: "Scaled" },
+  "Fuente: {src}": { en: "Source: {src}" },
+  "Reconstruido desde inspects": { en: "Rebuilt from inspects" },
+  "Copiado al portapapeles": { en: "Copied to clipboard" },
+  "Copiar": { en: "Copy" },
+  "Error cargando compose": { en: "Error loading compose" },
+  "{n} servicios · ": { en: "{n} services · " },
+  "Variables de entorno por servicio": { en: "Environment variables per service" },
+  "No hay variables de entorno configuradas": { en: "No environment variables configured" },
+  "Redes del Stack": { en: "Stack Networks" },
+  "Cargando {name}...": { en: "Loading {name}..." },
+  "{n} stacks": { en: "{n} stacks" },
+  "Detener {name}?": { en: "Stop {name}?" },
+  "Detenido": { en: "Stopped" },
+  "Iniciado": { en: "Started" },
+  "{r}/{d} servicios activos": { en: "{r}/{d} active services" },
+  "Nombre del Stack": { en: "Stack Name" },
+  "Desplegando...": { en: "Deploying..." },
+  "Variables": { en: "Variables" },
+  // === Containers ===
+  "{action} {n} contenedores?": { en: "{action} {n} containers?" },
+  "{action}: {ok}/{n} exitosos": { en: "{action}: {ok}/{n} succeeded" },
+  "{n} contenedores": { en: "{n} containers" },
+  // === Networks ===
+  "Eliminar {n} redes?": { en: "Delete {n} networks?" },
+  "{n} redes eliminadas": { en: "{n} networks deleted" },
+  "{n} redes": { en: "{n} networks" },
+  // === Volumes ===
+  "Eliminar {n} volumenes?": { en: "Delete {n} volumes?" },
+  "{n} volumenes eliminados": { en: "{n} volumes deleted" },
+  "{n} volumenes": { en: "{n} volumes" },
+  // === Images ===
+  "Imagen descargada": { en: "Image pulled" },
+  "Eliminar {n} imagenes?": { en: "Delete {n} images?" },
+  "{n} imagenes eliminadas": { en: "{n} images deleted" },
+  "{n} imagenes en {h} nodos": { en: "{n} images on {h} nodes" },
+  "{n} imagenes": { en: "{n} images" },
+  // === Settings ===
+  "Configuracion guardada": { en: "Configuration saved" },
+  "Ingresa la password para probar": { en: "Enter the password to test" },
+  "Configuracion Docker Swarm": { en: "Docker Swarm Configuration" },
+  "Intervalo de polling (segundos)": { en: "Polling interval (seconds)" },
+  "Hosts Swarm (SSH)": { en: "Swarm Hosts (SSH)" },
+  "Host/IP": { en: "Host/IP" },
+  "Usuario": { en: "User" },
+  "Probando...": { en: "Testing..." },
+  "Probar conexion": { en: "Test connection" },
+  "Eliminar": { en: "Delete" },
+  "OK - Swarm activo, {nodes} nodos, {managers} managers": { en: "OK - Swarm active, {nodes} nodes, {managers} managers" },
+  "+ Agregar Host": { en: "+ Add Host" },
+  "Guardar Configuracion": { en: "Save Configuration" },
+  "ej. swarm-manager-1": { en: "e.g. swarm-manager-1" },
+  "ej. 192.168.1.10": { en: "e.g. 192.168.1.10" },
+  "ej. usuario-ssh": { en: "e.g. ssh-user" },
+  // === LoadBalance ===
+  "Rebalancear": { en: "Rebalance" },
+  "{n} servicios (lb)": { en: "{n} services" },
+  "Sin datos de balance": { en: "No balance data" },
+  "Rebalancear {svc}? Esto forzara un re-deploy del servicio.": { en: "Rebalance {svc}? This will force a re-deploy of the service." },
+  "{svc} rebalanceando...": { en: "{svc} rebalancing..." },
+  "Error de conexion": { en: "Connection error" },
+  "Requiere admin": { en: "Requires admin" },
+  "No se pudo iniciar": { en: "Could not start" },
+  "Rebalance arrancado: {n} servicios": { en: "Rebalance started: {n} services" },
+  "Rebalance {state}: {completed}/{total} ({failed} fail)": { en: "Rebalance {state}: {completed}/{total} ({failed} fail)" },
+  "completo": { en: "complete" },
+  "con errores": { en: "with errors" },
+  "Error: {msg}": { en: "Error: {msg}" },
+  "{tasks} tasks en {nodes} nodos": { en: "{tasks} tasks on {nodes} nodes" },
+  "Distribucion de Tasks": { en: "Task Distribution" },
+  "Rebalance en curso": { en: "Rebalance in progress" },
+  "⚠ Rebalance terminado con errores": { en: "⚠ Rebalance finished with errors" },
+  "✓ Rebalance completado": { en: "✓ Rebalance completed" },
+  "▶ ahora: ": { en: "▶ now: " },
+  "Diagnóstico de balance": { en: "Balance diagnostics" },
+  "Rebalanceando…": { en: "Rebalancing…" },
+  "⚖ Rebalance automático ({n})": { en: "⚖ Automatic rebalance ({n})" },
+  "Más cargado": { en: "Most loaded" },
+  "Menos cargado": { en: "Least loaded" },
+  "{n} tasks": { en: "{n} tasks" },
+  "Elegibles": { en: "Eligible" },
+  "replicas>1, sin pin": { en: "replicas>1, no pin" },
+  "no se pueden mover": { en: "cannot be moved" },
+  "replicas=1": { en: "replicas=1" },
+  "⚖ Confirmar rebalance automático": { en: "⚖ Confirm automatic rebalance" },
+  "Vas a force-update {count} servicios en secuencia, con {delay}s de pausa entre cada uno. Cada force-update dispara un rolling restart que Swarm aprovecha para redistribuir las réplicas.": { en: "You are about to force-update {count} services in sequence, with {delay}s of pause between each one. Each force-update triggers a rolling restart that Swarm uses to redistribute the replicas." },
+  "Saltados:": { en: "Skipped:" },
+  "· {n} con constraint node.id/hostname (no pueden moverse)": { en: "· {n} with node.id/hostname constraint (cannot be moved)" },
+  "· {n} con replicas=1 (no hay nada que distribuir)": { en: "· {n} with replicas=1 (nothing to distribute)" },
+  "⚠ Tiempo total estimado: ~{min} min. Cada servicio hace rolling update — Swarm mantiene N-1 réplicas vivas durante el cambio.": { en: "⚠ Estimated total time: ~{min} min. Each service does a rolling update — Swarm keeps N-1 replicas alive during the change." },
+  "Cancelar": { en: "Cancel" },
+  "Ejecutar rebalance": { en: "Run rebalance" },
+  // === Trends ===
+  "Error cargando tendencias": { en: "Error loading trends" },
+  "{n} samples · más antiguo: {old}": { en: "{n} samples · oldest: {old}" },
+  "Aún no hay samples acumulados para esta ventana. El sampler escribe uno por nodo cada poll cycle (~30s).": { en: "No samples accumulated for this window yet. The sampler writes one per node every poll cycle (~30s)." },
+  // === Audit ===
+  "Atención": { en: "Warning" },
+  "Falla": { en: "Fail" },
+  "Cargando auditoría…": { en: "Loading audit…" },
+  "Calificación del cluster": { en: "Cluster grade" },
+  "promedio: {avg} / 4": { en: "average: {avg} / 4" },
+  "{n} servicios · {h}/{t} nodos sanos": { en: "{n} services · {h}/{t} healthy nodes" },
+  "Distribución": { en: "Distribution" },
+  "{pct}% del total": { en: "{pct}% of total" },
+  "{n} issues P0 (críticos)": { en: "{n} P0 issues (critical)" },
+  "{n} issues P1 (importantes)": { en: "{n} P1 issues (important)" },
+  "Top {n} con peor calificación": { en: "Top {n} with worst grade" },
+  "Filtrar por stack…": { en: "Filter by stack…" },
+  "Todos ({n})": { en: "All ({n})" },
+  "Con issues ({n})": { en: "With issues ({n})" },
+  "Solo F ({n})": { en: "Only F ({n})" },
+  "Requiere admin para aplicar fixes": { en: "Requires admin to apply fixes" },
+  "No aplicable: {reason}": { en: "Not applicable: {reason}" },
+  "✓ Fix aplicado a {service}": { en: "✓ Fix applied to {service}" },
+  "Falló (rc={rc}): {detail}": { en: "Failed (rc={rc}): {detail}" },
+  "⚡ Confirmar fix automático": { en: "⚡ Confirm automatic fix" },
+  "Vas a ejecutar": { en: "You are about to run" },
+  "sobre": { en: "on" },
+  ". Swarm hará un rolling update — las réplicas se reemplazarán una por una.": { en: ". Swarm will do a rolling update — replicas will be replaced one by one." },
+  "Acción": { en: "Action" },
+  "⚠ Pre-condición confirmada: {reason}": { en: "⚠ Pre-condition confirmed: {reason}" },
+  "check sigue fallando": { en: "check still failing" },
+  "Aplicar ahora": { en: "Apply now" },
+  "Grado": { en: "Grade" },
+  "Modo": { en: "Mode" },
+  "Sin issues": { en: "No issues" },
+  "Nada que mostrar": { en: "Nothing to show" },
+  "Sev": { en: "Sev" },
+  "Detalle": { en: "Detail" },
+  "Aplicando…": { en: "Applying…" },
+  "⚡ Aplicar fix automático": { en: "⚡ Apply automatic fix" },
+  // === App ===
+  "Error cargando datos": { en: "Error loading data" },
+  "Logs: {id}": { en: "Logs: {id}" },
+  "Sin logs": { en: "No logs" },
+  "{svc} escalado a {n}": { en: "{svc} scaled to {n}" },
+  "Reiniciar servicio {svc}?": { en: "Restart service {svc}?" },
+  "{svc} reiniciado": { en: "{svc} restarted" },
+  "Tasks: {name}": { en: "Tasks: {name}" },
+  "{action} container {id}?": { en: "{action} container {id}?" },
+  "Container {action}ed": { en: "Container {action}ed" },
+  "ELIMINAR stack {name}? Esto eliminara todos sus servicios.": { en: "DELETE stack {name}? This will remove all its services." },
+  "Stack {name} eliminado": { en: "Stack {name} deleted" },
+  "Dashboard": { en: "Dashboard" },
+  "Stacks": { en: "Stacks" },
+  "Balance": { en: "Balance" },
+  "Tendencias": { en: "Trends" },
+  "Auditoria": { en: "Audit" },
+  "Ajustes": { en: "Settings" },
+  "Volver a PegaProx": { en: "Back to PegaProx" },
+  "Escalar: {name}": { en: "Scale: {name}" },
+  "Replicas actuales: {n}": { en: "Current replicas: {n}" },
+  "Aplicar Scale": { en: "Apply Scale" },
+};
+function t(s, params) {
+  let out = (LANG === 'en' && I18N[s] && I18N[s].en != null) ? I18N[s].en : s;
+  if (params) for (const k in params) out = out.split('{'+k+'}').join(params[k]);
+  return out;
+}
+// Alias for use inside scopes that shadow `t` (e.g. .map(t => ...) over targets).
+const tr = t;
+
 const API = '/api/plugins/docker_swarm/api';
 
 // v2.0.0: tabs that depend on Docker Swarm primitives (`docker node|service|
@@ -127,7 +423,7 @@ const fmtAgo = (iso) => {
 function Sparkline({ points, width = 120, height = 32, color = 'var(--accent)', maxValue = null, fill = true }) {
   if (!points || points.length < 2) {
     return <div style={{width, height, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'var(--muted)', border:'1px dashed var(--border)', borderRadius:4}}>
-      sin datos
+      {t("sin datos")}
     </div>;
   }
   const minTs = points[0].ts;
@@ -196,15 +492,15 @@ function DiskPruneBar({ onRefresh }) {
   const [result, setResult] = React.useState(null);
   const targets = [
     { id: 'build-cache', label: 'Build cache', color: 'var(--blue,#3b82f6)', confirm: false },
-    { id: 'images', label: 'Imágenes >24h', color: 'var(--blue,#3b82f6)', confirm: false },
-    { id: 'containers', label: 'Contenedores parados', color: 'var(--muted)', confirm: false },
-    { id: 'networks', label: 'Redes no usadas', color: 'var(--muted)', confirm: false },
-    { id: 'all-safe', label: 'Todo (seguro)', color: 'var(--yellow,#f59e0b)', confirm: true },
-    { id: 'volumes', label: 'Volúmenes huérfanos', color: 'var(--red,#ef4444)', confirm: true },
-    { id: 'all', label: 'TODO + volúmenes', color: 'var(--red,#ef4444)', confirm: true },
+    { id: 'images', label: t('Imágenes >24h'), color: 'var(--blue,#3b82f6)', confirm: false },
+    { id: 'containers', label: t('Contenedores parados'), color: 'var(--muted)', confirm: false },
+    { id: 'networks', label: t('Redes no usadas'), color: 'var(--muted)', confirm: false },
+    { id: 'all-safe', label: t('Todo (seguro)'), color: 'var(--yellow,#f59e0b)', confirm: true },
+    { id: 'volumes', label: t('Volúmenes huérfanos'), color: 'var(--red,#ef4444)', confirm: true },
+    { id: 'all', label: t('TODO + volúmenes'), color: 'var(--red,#ef4444)', confirm: true },
   ];
   async function runPrune(t) {
-    if (t.confirm && !window.confirm(`⚠️  ${t.label}\n\nEsta acción afectará TODOS los nodos. ${t.id==='volumes'||t.id==='all'?'Puede borrar datos de volúmenes no montados.':'Es reversible (solo recupera espacio).'}\n\n¿Continuar?`)) return;
+    if (t.confirm && !window.confirm(tr("⚠️  {label}\n\nEsta acción afectará TODOS los nodos. {detail}\n\n¿Continuar?", {label: t.label, detail: t.id==='volumes'||t.id==='all'?tr('Puede borrar datos de volúmenes no montados.'):tr('Es reversible (solo recupera espacio).')}))) return;
     setBusy(t.id); setResult(null);
     try {
       const r = await fetch(`${API}/disk/prune`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target: t.id, all_nodes: true }) });
@@ -215,7 +511,7 @@ function DiskPruneBar({ onRefresh }) {
     setBusy('');
   }
   return <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid var(--border)'}}>
-    <div style={{fontSize:11,color:'var(--muted)',marginBottom:8,textTransform:'uppercase'}}>Limpieza manual</div>
+    <div style={{fontSize:11,color:'var(--muted)',marginBottom:8,textTransform:'uppercase'}}>{t("Limpieza manual")}</div>
     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
       {targets.map(t => (
         <button key={t.id} disabled={!!busy}
@@ -230,7 +526,7 @@ function DiskPruneBar({ onRefresh }) {
         ? <span style={{color:'var(--red,#ef4444)'}}>Error: {result.error}</span>
         : <>
             <strong>{result.description}</strong> · Liberado total: <strong style={{color:'var(--green,#10b981)'}}>{result.total_freed_human}</strong>
-            <details style={{marginTop:6}}><summary style={{cursor:'pointer',color:'var(--muted)'}}>Detalle por nodo</summary>
+            <details style={{marginTop:6}}><summary style={{cursor:'pointer',color:'var(--muted)'}}>{t("Detalle por nodo")}</summary>
               <ul style={{margin:'6px 0 0 18px',fontSize:11}}>
                 {(result.results||[]).map((r,i) => <li key={i}>{r.name||r.host}: {r.freed_bytes>0?`+${(r.freed_bytes/1024/1024).toFixed(1)} MB`:'0'} {r.exit_code!==0 && <span style={{color:'var(--red,#ef4444)'}}>(exit {r.exit_code})</span>}</li>)}
               </ul>
@@ -251,57 +547,57 @@ function DiskAutoPruneSettings({ toast }) {
       setAvailable((j.available_targets||[]).filter(t => t!=='volumes' && t!=='all'));
     });
   }, []);
-  if (!cfg) return <div className="card">Cargando…</div>;
+  if (!cfg) return <div className="card">{t("Cargando…")}</div>;
   async function save() {
     setSaving(true);
     try {
       const r = await fetch(`${API}/disk/settings`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
       const j = await r.json();
-      if (j.error) toast && toast('Error: '+j.error, 'error');
-      else { setCfg(j.disk_auto_prune); toast && toast('Auto-prune guardado', 'success'); }
-    } catch(e){ toast && toast('Error de red', 'error'); }
+      if (j.error) toast && toast(t('Error: {msg}',{msg:j.error}), 'error');
+      else { setCfg(j.disk_auto_prune); toast && toast(t('Auto-prune guardado'), 'success'); }
+    } catch(e){ toast && toast(t('Error de red'), 'error'); }
     setSaving(false);
   }
   async function runNow() {
-    if (!window.confirm('¿Ejecutar auto-prune ahora en los nodos sobre el umbral?')) return;
+    if (!window.confirm(t('¿Ejecutar auto-prune ahora en los nodos sobre el umbral?'))) return;
     setSaving(true);
     try {
       const r = await fetch(`${API}/disk/auto-prune/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
       const j = await r.json();
-      if (j.error) toast && toast('Error: '+j.error, 'error');
-      else { setCfg(j.disk_auto_prune); toast && toast('Auto-prune ejecutado', 'success'); }
-    } catch(e){ toast && toast('Error de red', 'error'); }
+      if (j.error) toast && toast(t('Error: {msg}',{msg:j.error}), 'error');
+      else { setCfg(j.disk_auto_prune); toast && toast(t('Auto-prune ejecutado'), 'success'); }
+    } catch(e){ toast && toast(t('Error de red'), 'error'); }
     setSaving(false);
   }
   const toggleTarget = (t) => setCfg(c => ({ ...c, targets: c.targets.includes(t) ? c.targets.filter(x=>x!==t) : [...c.targets, t] }));
   return <div className="card" style={{marginTop:16}}>
-    <h4 style={{marginTop:0}}>🧹 Auto-prune de disco</h4>
+    <h4 style={{marginTop:0}}>{t("🧹 Auto-prune de disco")}</h4>
     <p style={{fontSize:12,color:'var(--muted)',marginBottom:16}}>
-      Ejecuta limpieza automática en cada nodo cuyo disco supere el umbral. <strong>No toca volúmenes</strong> (prohibido en modo automático por seguridad).
+      {t("Ejecuta limpieza automática en cada nodo cuyo disco supere el umbral.")} <strong>{t("No toca volúmenes")}</strong>{t(" (prohibido en modo automático por seguridad).")}
     </p>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16}}>
       <div>
         <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
           <input type="checkbox" checked={!!cfg.enabled} onChange={e=>setCfg({...cfg, enabled:e.target.checked})} />
-          <span style={{fontWeight:600}}>{cfg.enabled?'Activo':'Desactivado'}</span>
+          <span style={{fontWeight:600}}>{cfg.enabled?t('Activo'):t('Desactivado')}</span>
         </label>
       </div>
       <div>
-        <label style={{fontSize:12,color:'var(--muted)'}}>Umbral disco (%)</label>
+        <label style={{fontSize:12,color:'var(--muted)'}}>{t("Umbral disco (%)")}</label>
         <input type="number" min={50} max={95} value={cfg.threshold_pct||80}
           onChange={e=>setCfg({...cfg, threshold_pct:parseInt(e.target.value)||80})}
           style={{width:'100%',padding:6,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--fg)'}} />
-        <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>Se dispara cuando / supera este porcentaje en cualquier nodo</div>
+        <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{t("Se dispara cuando / supera este porcentaje en cualquier nodo")}</div>
       </div>
       <div>
-        <label style={{fontSize:12,color:'var(--muted)'}}>Revisar cada (min)</label>
+        <label style={{fontSize:12,color:'var(--muted)'}}>{t("Revisar cada (min)")}</label>
         <input type="number" min={5} max={1440} value={cfg.check_interval_min||30}
           onChange={e=>setCfg({...cfg, check_interval_min:parseInt(e.target.value)||30})}
           style={{width:'100%',padding:6,borderRadius:4,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--fg)'}} />
       </div>
     </div>
     <div style={{marginTop:16}}>
-      <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>Qué limpiar (en orden)</div>
+      <div style={{fontSize:12,color:'var(--muted)',marginBottom:6}}>{t("Qué limpiar (en orden)")}</div>
       <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
         {available.map(t => (
           <label key={t} style={{padding:'4px 10px',border:'1px solid var(--border)',borderRadius:4,fontSize:12,cursor:'pointer',background:cfg.targets.includes(t)?'var(--blue,#3b82f6)':'var(--bg)',color:cfg.targets.includes(t)?'#fff':'var(--fg)'}}>
@@ -312,15 +608,15 @@ function DiskAutoPruneSettings({ toast }) {
       </div>
     </div>
     {cfg.last_run && <div style={{marginTop:16,padding:10,background:'var(--bg)',borderRadius:4,fontSize:12}}>
-      <div style={{color:'var(--muted)'}}>Última ejecución: {new Date(cfg.last_run).toLocaleString()}</div>
-      <div>Liberado: <strong style={{color:'var(--green,#10b981)'}}>{((cfg.last_run_freed_bytes||0)/1024/1024).toFixed(1)} MB</strong></div>
+      <div style={{color:'var(--muted)'}}>{t("Última ejecución: {time}",{time:new Date(cfg.last_run).toLocaleString()})}</div>
+      <div>{t("Liberado:")} <strong style={{color:'var(--green,#10b981)'}}>{((cfg.last_run_freed_bytes||0)/1024/1024).toFixed(1)} MB</strong></div>
     </div>}
     <div style={{marginTop:16,display:'flex',gap:8}}>
       <button onClick={save} disabled={saving} style={{padding:'8px 16px',background:'var(--blue,#3b82f6)',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}>
-        {saving?'Guardando…':'💾 Guardar política'}
+        {saving?t('Guardando…'):t('💾 Guardar política')}
       </button>
       <button onClick={runNow} disabled={saving} style={{padding:'8px 16px',background:'var(--yellow,#f59e0b)',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}>
-        ▶ Ejecutar ahora
+        {t("▶ Ejecutar ahora")}
       </button>
     </div>
   </div>;
@@ -338,27 +634,27 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
         <div style={{width:40,height:40,borderRadius:10,background:'rgba(59,130,246,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,color:'#3b82f6'}}>D</div>
         <div>
           <h3 style={{fontSize:16,fontWeight:700,marginBottom:2}}>Docker Standalone</h3>
-          <div style={{fontSize:12,color:'var(--muted)'}}>El engine configurado no es parte de un Swarm cluster.</div>
+          <div style={{fontSize:12,color:'var(--muted)'}}>{t("El engine configurado no es parte de un Swarm cluster.")}</div>
         </div>
       </div>
       <p style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>
-        Las funciones de Swarm (nodos, servicios, stacks, balance, auditoria) estan deshabilitadas. Usa las pestanas disponibles para gestionar este host:
+        {t("Las funciones de Swarm (nodos, servicios, stacks, balance, auditoria) estan deshabilitadas. Usa las pestanas disponibles para gestionar este host:")}
       </p>
       <div style={{display:'flex',flexWrap:'wrap',gap:8,fontSize:12}}>
-        <span className="badge badge-blue">Contenedores</span>
-        <span className="badge badge-blue">Redes</span>
-        <span className="badge badge-blue">Volumenes</span>
-        <span className="badge badge-blue">Imagenes</span>
+        <span className="badge badge-blue">{t("Contenedores")}</span>
+        <span className="badge badge-blue">{t("Redes")}</span>
+        <span className="badge badge-blue">{t("Volumenes")}</span>
+        <span className="badge badge-blue">{t("Imagenes")}</span>
       </div>
       <p style={{fontSize:11,color:'var(--muted)',marginTop:16,opacity:.7}}>
-        Para activar Swarm en este host: <code>docker swarm init</code>. Las pestanas swarm aparecen automaticamente tras ~60s.
+        {t("Para activar Swarm en este host:")} <code>docker swarm init</code>{t(". Las pestanas swarm aparecen automaticamente tras ~60s.")}
       </p>
     </div>;
   }
   if (!overview || overview.error) return <div className="card" style={{textAlign:'center',padding:60}}>
     <div style={{fontSize:40,marginBottom:12,opacity:.3}}>~</div>
-    <p style={{color:'var(--muted)',marginBottom:8,fontSize:15}}>No hay conexion al Swarm</p>
-    <p style={{fontSize:12,color:'var(--red)'}}>{overview?.error || 'Configura un host en la seccion Ajustes'}</p>
+    <p style={{color:'var(--muted)',marginBottom:8,fontSize:15}}>{t("No hay conexion al Swarm")}</p>
+    <p style={{fontSize:12,color:'var(--red)'}}>{overview?.error || t('Configura un host en la seccion Ajustes')}</p>
   </div>;
 
   const sw = overview.swarm || {};
@@ -378,10 +674,10 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
   return <>
     {/* Stat cards with colored top accents */}
     <div className="grid-4" style={{marginBottom:16}}>
-      <StatCard value={sw.nodes_count||0} label="Nodos" color="#3b82f6" sub={`${sw.managers||0} managers`} />
-      <StatCard value={overview.services_count||0} label="Servicios" color="var(--accent)" sub="Docker Swarm" />
+      <StatCard value={sw.nodes_count||0} label={t("Nodos")} color="#3b82f6" sub={`${sw.managers||0} managers`} />
+      <StatCard value={overview.services_count||0} label={t("Servicios")} color="var(--accent)" sub="Docker Swarm" />
       <StatCard value={sw.containers_running||0} label="Containers Running" color="var(--green)" sub={`${totalContainers} total`} />
-      <StatCard value={sw.images||0} label="Imagenes" color="#a855f7" sub="Across all nodes" />
+      <StatCard value={sw.images||0} label={t("Imagenes")} color="#a855f7" sub="Across all nodes" />
     </div>
 
     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
@@ -400,7 +696,7 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
           <div><span style={{color:'var(--muted)',fontSize:11}}>Manager Node</span><div style={{fontWeight:500}}>{sw.hostname}</div></div>
           <div><span style={{color:'var(--muted)',fontSize:11}}>OS</span><div style={{fontWeight:500}}>{(sw.os||'').replace('Ubuntu ','Ubuntu\n')}</div></div>
           <div><span style={{color:'var(--muted)',fontSize:11}}>Kernel</span><div style={{fontFamily:'monospace',fontSize:12}}>{sw.kernel}</div></div>
-          <div><span style={{color:'var(--muted)',fontSize:11}}>Arquitectura</span><div style={{fontWeight:500}}>{sw.arch || 'x86_64'}</div></div>
+          <div><span style={{color:'var(--muted)',fontSize:11}}>{t("Arquitectura")}</span><div style={{fontWeight:500}}>{sw.arch || 'x86_64'}</div></div>
           <div><span style={{color:'var(--muted)',fontSize:11}}>Topology</span>
             <div style={{display:'flex',gap:6,marginTop:2}}>
               <span className="badge badge-blue">{sw.managers||0} Managers</span>
@@ -449,7 +745,7 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
     {(overview.disk_usage||[]).length > 0 && <div className="card" style={{marginBottom:16}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
         <h4 style={{fontSize:13,color:'var(--muted)',margin:0}}>Disk Usage (Manager)</h4>
-        <span style={{fontSize:11,color:'var(--muted)'}}>Acciones afectan TODOS los nodos</span>
+        <span style={{fontSize:11,color:'var(--muted)'}}>{t("Acciones afectan TODOS los nodos")}</span>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:12}}>
         {overview.disk_usage.map((d,i) => {
@@ -463,7 +759,7 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
             <div style={{height:6,background:'var(--border)',borderRadius:3,overflow:'hidden',marginBottom:4}}>
               <div style={{height:'100%',width:`${100-pct}%`,background:pct>50?'var(--green)':'var(--yellow)',borderRadius:3,transition:'width .4s'}}/>
             </div>
-            <div style={{fontSize:11,color:'var(--muted)'}}>{d.Reclaimable} recuperable</div>
+            <div style={{fontSize:11,color:'var(--muted)'}}>{t("{r} recuperable",{r:d.Reclaimable})}</div>
           </div>;
         })}
       </div>
@@ -511,7 +807,7 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
 
     {/* Node Resources — enhanced cards instead of plain table */}
     {nodeStats && nodeStats.stats && <div>
-      <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>Recursos por Nodo</h4>
+      <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>{t("Recursos por Nodo")}</h4>
       <div className="grid-3">
         {nodeStats.stats.map((n,i) => {
           const cpuPct = n.cpu_count ? ((n.load_1m/n.cpu_count)*100).toFixed(0) : 0;
@@ -551,7 +847,7 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
               </div>
               <div>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}>
-                  <span style={{color:'var(--muted)'}}>Disco</span>
+                  <span style={{color:'var(--muted)'}}>{t("Disco")}</span>
                   <span style={{color:diskColor,fontWeight:600}}>{fmtBytes(n.disk_used)} / {fmtBytes(n.disk_total)} ({diskPct}%)</span>
                 </div>
                 <ProgressBar percent={diskPct} color={diskColor} />
@@ -563,14 +859,14 @@ function Dashboard({ overview, nodeStats, loadBalance, onRefresh, loading, engin
     </div>}
 
     <div style={{textAlign:'right',marginTop:12,fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8}}>
-      <span className="live-dot" /> En vivo — Actualizado: {overview.updated_at ? new Date(overview.updated_at).toLocaleTimeString() : '-'}
+      <span className="live-dot" /> {t("En vivo — Actualizado: {time}",{time: overview.updated_at ? new Date(overview.updated_at).toLocaleTimeString() : '-'})}
     </div>
   </>;
 }
 
 // Nodes
 function Nodes({ data }) {
-  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>Sin nodos</div>;
+  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>{t("Sin nodos")}</div>;
   return <div className="card">
     <table>
       <thead><tr><th>ID</th><th>Hostname</th><th>Status</th><th>Availability</th><th>Role</th><th>Engine</th><th>IP</th><th>CPU</th><th>RAM</th></tr></thead>
@@ -604,7 +900,7 @@ function ServiceDetail({ serviceId, onBack, toast }) {
     setLoading(true);
     const q = opts.unmask ? '&unmask=1' : '';
     const d = await api(`service-detail?service_id=${encodeURIComponent(serviceId)}${q}`);
-    if (d._http === 403) toast(d.error || 'Acceso denegado', 'error');
+    if (d._http === 403) toast(d.error || t('Acceso denegado'), 'error');
     setSvc(d); setEditReplicas(d.replicas ?? ''); setEditImage(d.image?.split('@')[0] || '');
     setUnmasked(!!opts.unmask && d.env_masked === false);
     setLoading(false);
@@ -613,7 +909,7 @@ function ServiceDetail({ serviceId, onBack, toast }) {
 
   const toggleUnmask = async () => {
     if (unmasked) { setUnmasked(false); load(); return; }
-    if (!confirm('Mostrar valores reales de variables sensibles? Esta acción queda registrada en el audit log.')) return;
+    if (!confirm(t('Mostrar valores reales de variables sensibles? Esta acción queda registrada en el audit log.'))) return;
     load({ unmask: true });
   };
 
@@ -624,27 +920,27 @@ function ServiceDetail({ serviceId, onBack, toast }) {
     if (editImage !== (svc.image?.split('@')[0]||'')) body.image = editImage;
     if (svc.mode_type === 'replicated' && parseInt(editReplicas) !== svc.replicas) body.replicas = parseInt(editReplicas);
     const r = await api('service-update', {method:'POST', body});
-    if (r.success) { toast('Servicio actualizado','success'); load(); } else toast(r.error,'error');
+    if (r.success) { toast(t('Servicio actualizado'),'success'); load(); } else toast(r.error,'error');
   };
-  const doRollback = async () => { if(!confirm('Rollback este servicio a la version anterior?'))return; const r=await api('service-rollback',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast('Rollback exitoso','success');load();}else toast(r.error,'error'); };
-  const doRestart = async () => { const r=await api('service-restart',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast('Reiniciado','success');load();}else toast(r.error,'error'); };
-  const doRemove = async () => { if(!confirm(`ELIMINAR servicio ${serviceId}?`))return; const r=await api('service-remove',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast('Eliminado','success');onBack();}else toast(r.error,'error'); };
+  const doRollback = async () => { if(!confirm(t('Rollback este servicio a la version anterior?')))return; const r=await api('service-rollback',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast(t('Rollback exitoso'),'success');load();}else toast(r.error,'error'); };
+  const doRestart = async () => { const r=await api('service-restart',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast(t('Reiniciado'),'success');load();}else toast(r.error,'error'); };
+  const doRemove = async () => { if(!confirm(t('ELIMINAR servicio {id}?',{id:serviceId})))return; const r=await api('service-remove',{method:'POST',body:{service_id:serviceId}}); if(r.success){toast(t('Eliminado'),'success');onBack();}else toast(r.error,'error'); };
 
   const fmtNano = (ns) => ns ? `${(ns/1e9).toFixed(1)}s` : '-';
   const fmtNanoCpu = (n) => n ? (n/1e9).toFixed(2) : '-';
   const fmtMemLimit = (b) => b ? fmtBytes(b) : '-';
 
-  if (loading) return <div style={{textAlign:'center',padding:40}}><span className="spinner"/> Cargando servicio...</div>;
+  if (loading) return <div style={{textAlign:'center',padding:40}}><span className="spinner"/> {t("Cargando servicio...")}</div>;
   if (!svc || svc.error) return <div className="card" style={{padding:20,color:'var(--red)'}}>{svc?.error||'Error'}</div>;
 
   const sections = [
-    {id:'details',label:'Detalles'},
-    {id:'env',label:'Variables de Entorno'},
+    {id:'details',label:t('Detalles')},
+    {id:'env',label:t('Variables de Entorno')},
     {id:'image',label:'Container Image'},
     {id:'labels',label:'Labels'},
     {id:'mounts',label:'Mounts'},
-    {id:'network',label:'Network & Puertos'},
-    {id:'resources',label:'Recursos'},
+    {id:'network',label:t('Network & Puertos')},
+    {id:'resources',label:t('Recursos')},
     {id:'placement',label:'Placement'},
     {id:'restart',label:'Restart Policy'},
     {id:'update',label:'Update Config'},
@@ -658,7 +954,7 @@ function ServiceDetail({ serviceId, onBack, toast }) {
 
   return <>
     <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-      <button className="btn btn-sm" onClick={onBack}>← Volver</button>
+      <button className="btn btn-sm" onClick={onBack}>{t("← Volver")}</button>
       <h3 style={{fontSize:16,fontWeight:700}}>Service details</h3>
       <span style={{fontSize:12,color:'var(--muted)',fontFamily:'monospace'}}>{svc.name}</span>
     </div>
@@ -691,7 +987,7 @@ function ServiceDetail({ serviceId, onBack, toast }) {
           <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Full: {svc.image}</div>
 
           {svc.has_previous_spec && <div style={{marginTop:12,padding:8,background:'rgba(234,179,8,.1)',borderRadius:6,fontSize:12,color:'var(--yellow)'}}>
-            Rollback disponible. Imagen anterior: {svc.previous_image?.split('@')[0] || 'unknown'}
+            {t("Rollback disponible. Imagen anterior: {img}",{img: svc.previous_image?.split('@')[0] || 'unknown'})}
           </div>}
 
           <div style={{marginTop:16,display:'flex',gap:8,flexWrap:'wrap',borderTop:'1px solid var(--border)',paddingTop:12}}>
@@ -706,16 +1002,16 @@ function ServiceDetail({ serviceId, onBack, toast }) {
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
             <h4 style={{fontSize:14,fontWeight:600,margin:0}}>Environment variables ({svc.env?.length||0})</h4>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              {svc.env_masked && <span style={{fontSize:11,color:'var(--muted)'}}>Valores sensibles ocultos</span>}
+              {svc.env_masked && <span style={{fontSize:11,color:'var(--muted)'}}>{t("Valores sensibles ocultos")}</span>}
               <button className="btn btn-sm" onClick={toggleUnmask}>
-                {unmasked ? 'Ocultar' : 'Mostrar reales (admin)'}
+                {unmasked ? t('Ocultar') : t('Mostrar reales (admin)')}
               </button>
             </div>
           </div>
           {(svc.env||[]).length ? <div style={{background:'var(--bg)',borderRadius:6,padding:8,fontFamily:'monospace',fontSize:12,maxHeight:400,overflow:'auto'}}>
             {svc.env.map((e,i)=>{const [k,...v]=e.split('=');const val=v.join('=');const sensitive=/password|secret|token|apikey|api_key|jwt|bearer|auth|private|credential|dsn|passwd|passphrase/i.test(k);const serverMasked=val==='***';const display=serverMasked?'••••••••':val;
               return <div key={i} style={{padding:'3px 0',borderBottom:'1px solid var(--border)'}}><span style={{color:'var(--blue)'}}>{k}</span>=<span style={{color:sensitive||serverMasked?'var(--red)':'var(--green)'}}>{display}</span></div>;})}
-          </div> : <div style={{color:'var(--muted)'}}>No hay variables de entorno</div>}
+          </div> : <div style={{color:'var(--muted)'}}>{t("No hay variables de entorno")}</div>}
         </div>}
 
         {section==='image' && <div className="card fade-in">
@@ -747,18 +1043,18 @@ function ServiceDetail({ serviceId, onBack, toast }) {
           <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Service labels</h4>
           {Object.entries(svc.service_labels||{}).length ? <div style={{background:'var(--bg)',borderRadius:6,padding:8,fontFamily:'monospace',fontSize:12}}>
             {Object.entries(svc.service_labels).map(([k,v],i)=><div key={i} style={{padding:'3px 0',borderBottom:'1px solid var(--border)'}}><span style={{color:'var(--blue)'}}>{k}</span>=<span style={{color:'var(--green)'}}>{v}</span></div>)}
-          </div> : <div style={{color:'var(--muted)'}}>No hay labels</div>}
+          </div> : <div style={{color:'var(--muted)'}}>{t("No hay labels")}</div>}
           <h4 style={{fontSize:14,fontWeight:600,marginTop:16,marginBottom:12}}>Container labels</h4>
           {Object.entries(svc.container_labels||{}).length ? <div style={{background:'var(--bg)',borderRadius:6,padding:8,fontFamily:'monospace',fontSize:12}}>
             {Object.entries(svc.container_labels).map(([k,v],i)=><div key={i} style={{padding:'3px 0',borderBottom:'1px solid var(--border)'}}><span style={{color:'var(--blue)'}}>{k}</span>=<span style={{color:'var(--green)'}}>{v}</span></div>)}
-          </div> : <div style={{color:'var(--muted)'}}>No hay container labels</div>}
+          </div> : <div style={{color:'var(--muted)'}}>{t("No hay container labels")}</div>}
         </div>}
 
         {section==='mounts' && <div className="card fade-in">
           <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Mounts ({(svc.mounts||[]).length})</h4>
-          {(svc.mounts||[]).length ? <table><thead><tr><th>Tipo</th><th>Source</th><th>Target</th><th>ReadOnly</th></tr></thead>
+          {(svc.mounts||[]).length ? <table><thead><tr><th>{t("Tipo")}</th><th>Source</th><th>Target</th><th>ReadOnly</th></tr></thead>
             <tbody>{svc.mounts.map((m,i)=><tr key={i}><td><span className="badge badge-blue">{m.Type}</span></td><td style={{fontFamily:'monospace',fontSize:12}}>{m.Source||'-'}</td><td style={{fontFamily:'monospace',fontSize:12}}>{m.Target}</td><td>{m.ReadOnly?'Yes':'No'}</td></tr>)}</tbody>
-          </table> : <div style={{color:'var(--muted)'}}>No hay mounts</div>}
+          </table> : <div style={{color:'var(--muted)'}}>{t("No hay mounts")}</div>}
         </div>}
 
         {section==='network' && <div className="card fade-in">
@@ -792,11 +1088,11 @@ function ServiceDetail({ serviceId, onBack, toast }) {
           <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Placement constraints</h4>
           {(svc.constraints||[]).length ? <div style={{background:'var(--bg)',borderRadius:6,padding:8,fontFamily:'monospace',fontSize:12}}>
             {svc.constraints.map((c,i)=><div key={i} style={{padding:'2px 0'}}>{c}</div>)}
-          </div> : <div style={{color:'var(--muted)'}}>No hay constraints</div>}
+          </div> : <div style={{color:'var(--muted)'}}>{t("No hay constraints")}</div>}
           <h4 style={{fontSize:14,fontWeight:600,marginTop:16,marginBottom:12}}>Placement preferences</h4>
           {(svc.preferences||[]).length ? <div style={{background:'var(--bg)',borderRadius:6,padding:8,fontFamily:'monospace',fontSize:12}}>
             {svc.preferences.map((p,i)=><div key={i}>{JSON.stringify(p)}</div>)}
-          </div> : <div style={{color:'var(--muted)'}}>No hay preferences</div>}
+          </div> : <div style={{color:'var(--muted)'}}>{t("No hay preferences")}</div>}
           {svc.max_replicas>0 && <div style={{marginTop:8}}><Row label="Max replicas per node" val={svc.max_replicas}/></div>}
         </div>}
 
@@ -843,16 +1139,16 @@ function ServiceDetail({ serviceId, onBack, toast }) {
           <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Configs ({(svc.configs||[]).length})</h4>
           {(svc.configs||[]).length ? <table><thead><tr><th>Name</th><th>Target</th><th>Mode</th></tr></thead>
             <tbody>{svc.configs.map((c,i)=><tr key={i}><td>{c.ConfigName||c.ConfigID}</td><td style={{fontFamily:'monospace',fontSize:12}}>{c.File?.Name}</td><td>{c.File?.Mode}</td></tr>)}</tbody>
-          </table> : <div style={{color:'var(--muted)'}}>No hay configs</div>}
+          </table> : <div style={{color:'var(--muted)'}}>{t("No hay configs")}</div>}
           <h4 style={{fontSize:14,fontWeight:600,marginTop:16,marginBottom:12}}>Secrets ({(svc.secrets||[]).length})</h4>
           {(svc.secrets||[]).length ? <table><thead><tr><th>Name</th><th>Target</th><th>Mode</th></tr></thead>
             <tbody>{svc.secrets.map((s,i)=><tr key={i}><td>{s.SecretName||s.SecretID}</td><td style={{fontFamily:'monospace',fontSize:12}}>{s.File?.Name}</td><td>{s.File?.Mode}</td></tr>)}</tbody>
-          </table> : <div style={{color:'var(--muted)'}}>No hay secrets</div>}
+          </table> : <div style={{color:'var(--muted)'}}>{t("No hay secrets")}</div>}
         </div>}
 
         {section==='tasks' && <div className="card fade-in">
           <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Tasks ({(svc.tasks||[]).length})</h4>
-          <table><thead><tr><th>ID</th><th>Nombre</th><th>Nodo</th><th>Estado</th><th>Error</th></tr></thead>
+          <table><thead><tr><th>ID</th><th>{t("Nombre")}</th><th>{t("Nodo")}</th><th>{t("Estado")}</th><th>Error</th></tr></thead>
             <tbody>{(svc.tasks||[]).map((t,i)=><tr key={i}>
               <td style={{fontFamily:'monospace',fontSize:12}}>{(t.ID||'').substring(0,12)}</td>
               <td>{t.Name}</td><td>{t.Node}</td>
@@ -865,10 +1161,10 @@ function ServiceDetail({ serviceId, onBack, toast }) {
         {section==='logs' && <div className="card fade-in">
           <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
             <h4 style={{fontSize:14,fontWeight:600}}>Service logs</h4>
-            <button className="btn btn-sm" onClick={loadLogs}>Actualizar</button>
+            <button className="btn btn-sm" onClick={loadLogs}>{t("Actualizar")}</button>
           </div>
           {logsLoading ? <div style={{textAlign:'center',padding:20}}><span className="spinner"/></div>
-            : <div className="log-viewer">{logs||'Sin logs'}</div>}
+            : <div className="log-viewer">{logs||t('Sin logs')}</div>}
         </div>}
       </div>
 
@@ -894,7 +1190,7 @@ function Services({ data, onScale, onRestart, onLogs, onTasks, toast }) {
 
   if (selectedService) return <ServiceDetail serviceId={selectedService} onBack={()=>setSelectedService(null)} toast={toast} />;
 
-  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>Sin servicios</div>;
+  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>{t("Sin servicios")}</div>;
 
   const filtered = data.filter(s => {
     const name = (s.Name || '').toLowerCase();
@@ -905,11 +1201,11 @@ function Services({ data, onScale, onRestart, onLogs, onTasks, toast }) {
 
   return <>
     <div style={{marginBottom:12}}>
-      <input placeholder="Filtrar servicios..." value={filter} onChange={e=>setFilter(e.target.value)} style={{maxWidth:300}} />
+      <input placeholder={t("Filtrar servicios...")} value={filter} onChange={e=>setFilter(e.target.value)} style={{maxWidth:300}} />
     </div>
     <div className="card" style={{overflowX:'auto'}}>
       <table>
-        <thead><tr><th>Servicio</th><th>Stack</th><th>Image</th><th>Replicas</th><th>Ports</th><th>Updated</th><th>Acciones</th></tr></thead>
+        <thead><tr><th>{t("Servicio")}</th><th>Stack</th><th>Image</th><th>Replicas</th><th>Ports</th><th>Updated</th><th>{t("Acciones")}</th></tr></thead>
         <tbody>{filtered.map((s,i) => {
           const img = (s.Image || s.image_full || '').split('@')[0];
           const shortImg = img.includes('/') ? img.split('/').pop() : img;
@@ -930,7 +1226,7 @@ function Services({ data, onScale, onRestart, onLogs, onTasks, toast }) {
         })}</tbody>
       </table>
     </div>
-    <div style={{marginTop:8,fontSize:12,color:'var(--muted)'}}>{filtered.length} de {data.length} servicios</div>
+    <div style={{marginTop:8,fontSize:12,color:'var(--muted)'}}>{t("{n} de {total} servicios",{n:filtered.length,total:data.length})}</div>
   </>;
 }
 
@@ -957,7 +1253,7 @@ function Stacks({ data, onRemove, toast }) {
     const q = opts.unmask ? '&unmask=1' : '';
     const d = await api(`stack-detail?name=${encodeURIComponent(name)}${q}`);
     if (d._http === 403) {
-      toast(d.error || 'Acceso denegado', 'error');
+      toast(d.error || t('Acceso denegado'), 'error');
       setStackUnmasked(false);
     } else {
       setStackUnmasked(!!opts.unmask);
@@ -967,7 +1263,7 @@ function Stacks({ data, onRemove, toast }) {
 
   const toggleStackUnmask = async () => {
     if (stackUnmasked) { setStackUnmasked(false); selectStack(selected, { _keep: true }); return; }
-    if (!confirm('Mostrar valores reales de variables sensibles? Requiere admin y queda registrado en el audit log.')) return;
+    if (!confirm(t('Mostrar valores reales de variables sensibles? Requiere admin y queda registrado en el audit log.'))) return;
     selectStack(selected, { _keep: true, unmask: true });
   };
 
@@ -988,19 +1284,19 @@ function Stacks({ data, onRemove, toast }) {
     setDeploying(true);
     const r = await api('stack-deploy', {method:'POST', body:{stack_name:deployName, compose_yaml:deployYaml}});
     setDeploying(false);
-    if (r.success) { toast('Stack desplegado','success'); setDeployModal(false); setDeployName(''); setDeployYaml(''); }
+    if (r.success) { toast(t('Stack desplegado'),'success'); setDeployModal(false); setDeployName(''); setDeployYaml(''); }
     else toast(r.error||'Error','error');
   };
 
   const doRedeploy = async (name) => {
-    if (!compose?.compose) { toast('Carga el compose primero','error'); return; }
-    if (!confirm(`Redesplegar stack ${name}? Esto actualizara los servicios.`)) return;
+    if (!compose?.compose) { toast(t('Carga el compose primero'),'error'); return; }
+    if (!confirm(t('Redesplegar stack {name}? Esto actualizara los servicios.',{name}))) return;
     const r = await api('stack-deploy', {method:'POST', body:{stack_name:name, compose_yaml:compose.compose}});
-    if (r.success) { toast(`Stack ${name} redesplegado`,'success'); selectStack(name); }
+    if (r.success) { toast(t('Stack {name} redesplegado',{name}),'success'); selectStack(name); }
     else toast(r.error||'Error','error');
   };
 
-  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>Sin stacks</div>;
+  if (!data || !data.length) return <div className="card" style={{padding:20,color:'var(--muted)'}}>{t("Sin stacks")}</div>;
 
   // Stack detail view
   if (selected && detail) {
@@ -1017,20 +1313,20 @@ function Stacks({ data, onRemove, toast }) {
 
     return <>
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-        <button className="btn btn-sm" onClick={()=>{setSelected(null);setDetail(null);}}>← Volver</button>
+        <button className="btn btn-sm" onClick={()=>{setSelected(null);setDetail(null);}}>{t("← Volver")}</button>
         <h3 style={{fontSize:16,fontWeight:700}}>{selected}</h3>
         <span className={`badge ${healthy?'badge-green':'badge-yellow'}`}>{healthy?'Healthy':'Degraded'}</span>
-        <span className="badge badge-blue">{svcs.length} servicios</span>
+        <span className="badge badge-blue">{t("{n} servicios",{n:svcs.length})}</span>
         <span style={{fontSize:12,color:'var(--muted)'}}>{totalRunning}/{totalDesired} replicas</span>
       </div>
 
       <div className="tabs">
-        <div className={`tab ${activeView==='services'?'active':''}`} onClick={()=>setActiveView('services')}>Servicios ({svcs.length})</div>
+        <div className={`tab ${activeView==='services'?'active':''}`} onClick={()=>setActiveView('services')}>{t("{n} servicios",{n:svcs.length})}</div>
         <div className={`tab ${activeView==='compose'?'active':''}`} onClick={()=>{setActiveView('compose');if(!compose)loadCompose();}}>Compose</div>
         <div className={`tab ${activeView==='logs'?'active':''}`} onClick={()=>{setActiveView('logs');loadLogs();}}>Logs</div>
-        <div className={`tab ${activeView==='env'?'active':''}`} onClick={()=>setActiveView('env')}>Variables</div>
+        <div className={`tab ${activeView==='env'?'active':''}`} onClick={()=>setActiveView('env')}>{t("Variables")}</div>
         <div style={{marginLeft:'auto',display:'flex',gap:6}}>
-          {healthy ? <button className="btn btn-sm" style={{background:'var(--red)',borderColor:'var(--red)',color:'#fff'}} onClick={async()=>{if(!confirm(`Detener stack ${selected}? Todos los servicios se escalaran a 0.`))return;const r=await api('stack-stop',{method:'POST',body:{stack_name:selected}});if(r.success){toast(r.message,'success');selectStack(selected);}else toast(r.error,'error');}}>Stop Stack</button>
+          {healthy ? <button className="btn btn-sm" style={{background:'var(--red)',borderColor:'var(--red)',color:'#fff'}} onClick={async()=>{if(!confirm(t('Detener stack {name}? Todos los servicios se escalaran a 0.',{name:selected})))return;const r=await api('stack-stop',{method:'POST',body:{stack_name:selected}});if(r.success){toast(r.message,'success');selectStack(selected);}else toast(r.error,'error');}}>Stop Stack</button>
           : <button className="btn btn-sm" style={{background:'var(--green)',borderColor:'var(--green)',color:'#fff'}} onClick={async()=>{const r=await api('stack-start',{method:'POST',body:{stack_name:selected}});if(r.success){toast(r.message,'success');selectStack(selected);}else toast(r.error,'error');}}>Start Stack</button>}
           {compose && <button className="btn btn-sm btn-primary" onClick={()=>doRedeploy(selected)}>Redeploy</button>}
           <button className="btn btn-sm btn-danger" onClick={()=>{onRemove(selected);setSelected(null);}}>Remove Stack</button>
@@ -1039,7 +1335,7 @@ function Stacks({ data, onRemove, toast }) {
 
       {activeView==='services' && <div className="card fade-in" style={{overflowX:'auto'}}>
         <table>
-          <thead><tr><th>Servicio</th><th>Image</th><th>Replicas</th><th>Puertos</th><th>Estado Tasks</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>{t("Servicio")}</th><th>Image</th><th>Replicas</th><th>{t("Puertos")}</th><th>{t("Estado Tasks")}</th><th>{t("Acciones")}</th></tr></thead>
           <tbody>{svcs.map((s,i) => {
             const img = (s.image_full || s.Image || '').split('/').pop();
             const tasks = s.tasks || [];
@@ -1059,8 +1355,8 @@ function Stacks({ data, onRemove, toast }) {
                 </div>
               </td>
               <td style={{whiteSpace:'nowrap'}}>
-                <button className="btn btn-sm" onClick={async()=>{const r=await api('service-restart',{method:'POST',body:{service_id:s.Name}});if(r.success){toast(s.Name+' reiniciado','success');selectStack(selected);}else toast(r.error,'error');}}>Restart</button>{' '}
-                {s.mode_type!=='global'&&<button className="btn btn-sm" onClick={()=>{const n=prompt('Replicas:',s.Replicas?.split('/').pop()||'1');if(n!==null)api('service-scale',{method:'POST',body:{service_id:s.Name,replicas:parseInt(n)}}).then(r=>{if(r.success){toast('Escalado','success');selectStack(selected);}else toast(r.error,'error');});}}>Scale</button>}
+                <button className="btn btn-sm" onClick={async()=>{const r=await api('service-restart',{method:'POST',body:{service_id:s.Name}});if(r.success){toast(t('{name} reiniciado',{name:s.Name}),'success');selectStack(selected);}else toast(r.error,'error');}}>Restart</button>{' '}
+                {s.mode_type!=='global'&&<button className="btn btn-sm" onClick={()=>{const n=prompt('Replicas:',s.Replicas?.split('/').pop()||'1');if(n!==null)api('service-scale',{method:'POST',body:{service_id:s.Name,replicas:parseInt(n)}}).then(r=>{if(r.success){toast(t('Escalado'),'success');selectStack(selected);}else toast(r.error,'error');});}}>Scale</button>}
               </td>
             </tr>;
           })}</tbody>
@@ -1070,26 +1366,26 @@ function Stacks({ data, onRemove, toast }) {
       {activeView==='compose' && <div className="card fade-in">
         {composeLoading ? <div style={{textAlign:'center',padding:30}}><span className="spinner"/></div> : compose ? <>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-            <span style={{fontSize:12,color:'var(--muted)'}}>Fuente: {compose.source==='stack-config'?'docker stack config':'Reconstruido desde inspects'}</span>
-            <button className="btn btn-sm" onClick={()=>{navigator.clipboard.writeText(compose.compose);toast('Copiado al portapapeles','success');}}>Copiar</button>
+            <span style={{fontSize:12,color:'var(--muted)'}}>{t("Fuente: {src}",{src:compose.source==='stack-config'?'docker stack config':t('Reconstruido desde inspects')})}</span>
+            <button className="btn btn-sm" onClick={()=>{navigator.clipboard.writeText(compose.compose);toast(t('Copiado al portapapeles'),'success');}}>{t("Copiar")}</button>
           </div>
           <textarea value={compose.compose} onChange={e=>setCompose({...compose,compose:e.target.value})} style={{fontFamily:'monospace',fontSize:12,minHeight:400,background:'#000',color:'#0f0',padding:12,borderRadius:8,width:'100%',border:'1px solid var(--border)',resize:'vertical'}} />
-        </> : <div style={{color:'var(--muted)'}}>Error cargando compose</div>}
+        </> : <div style={{color:'var(--muted)'}}>{t("Error cargando compose")}</div>}
       </div>}
 
       {activeView==='logs' && <div className="card fade-in">
         {logsLoading ? <div style={{textAlign:'center',padding:30}}><span className="spinner"/></div>
-          : <><div style={{marginBottom:8,fontSize:12,color:'var(--muted)'}}>{stackLogs?.services||0} servicios · <button className="btn btn-sm" onClick={loadLogs}>Actualizar</button></div>
-            <div className="log-viewer">{stackLogs?.logs||'Sin logs'}</div></>}
+          : <><div style={{marginBottom:8,fontSize:12,color:'var(--muted)'}}>{t("{n} servicios · ",{n:stackLogs?.services||0})}<button className="btn btn-sm" onClick={loadLogs}>{t("Actualizar")}</button></div>
+            <div className="log-viewer">{stackLogs?.logs||t('Sin logs')}</div></>}
       </div>}
 
       {activeView==='env' && <div className="card fade-in">
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-          <h4 style={{fontSize:13,color:'var(--muted)',margin:0}}>Variables de entorno por servicio</h4>
+          <h4 style={{fontSize:13,color:'var(--muted)',margin:0}}>{t("Variables de entorno por servicio")}</h4>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            {svcs.some(s=>s.env_masked) && <span style={{fontSize:11,color:'var(--muted)'}}>Valores sensibles ocultos</span>}
+            {svcs.some(s=>s.env_masked) && <span style={{fontSize:11,color:'var(--muted)'}}>{t("Valores sensibles ocultos")}</span>}
             <button className="btn btn-sm" onClick={toggleStackUnmask}>
-              {stackUnmasked ? 'Ocultar' : 'Mostrar reales (admin)'}
+              {stackUnmasked ? t('Ocultar') : t('Mostrar reales (admin)')}
             </button>
           </div>
         </div>
@@ -1112,11 +1408,11 @@ function Stacks({ data, onRemove, toast }) {
             </div>
           </div>;
         })}
-        {svcs.every(s=>!(s.env_vars||[]).length) && <div style={{color:'var(--muted)'}}>No hay variables de entorno configuradas</div>}
+        {svcs.every(s=>!(s.env_vars||[]).length) && <div style={{color:'var(--muted)'}}>{t("No hay variables de entorno configuradas")}</div>}
       </div>}
 
       {detail.networks && detail.networks.length>0 && activeView==='services' && <div className="card" style={{marginTop:12}}>
-        <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>Redes del Stack</h4>
+        <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>{t("Redes del Stack")}</h4>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {detail.networks.map((n,i)=><span key={i} className="badge badge-blue">{n.Name} ({n.Driver})</span>)}
         </div>
@@ -1124,12 +1420,12 @@ function Stacks({ data, onRemove, toast }) {
     </>;
   }
 
-  if (selected && detailLoading) return <div style={{textAlign:'center',padding:40}}><span className="spinner"/> Cargando {selected}...</div>;
+  if (selected && detailLoading) return <div style={{textAlign:'center',padding:40}}><span className="spinner"/> {t("Cargando {name}...",{name:selected})}</div>;
 
   // Stack list view
   return <>
     <div style={{display:'flex',justifyContent:'space-between',marginBottom:12}}>
-      <span style={{fontSize:13,color:'var(--muted)'}}>{data.length} stacks</span>
+      <span style={{fontSize:13,color:'var(--muted)'}}>{t("{n} stacks",{n:data.length})}</span>
       <button className="btn btn-primary btn-sm" onClick={()=>setDeployModal(true)}>+ Deploy Stack</button>
     </div>
     <div className="grid-3">
@@ -1162,9 +1458,9 @@ function Stacks({ data, onRemove, toast }) {
             </div>
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-            <span style={{fontSize:11,color:'var(--muted)'}}>{s.svc_running||0}/{s.svc_total||0} servicios activos</span>
-            {isRunning || isPartial ? <button className="btn btn-sm" style={{fontSize:11,padding:'2px 8px',background:'rgba(239,68,68,.15)',color:'var(--red)',borderColor:'rgba(239,68,68,.3)'}} onClick={e=>{e.stopPropagation();if(!confirm(`Detener ${s.Name}?`))return;api('stack-stop',{method:'POST',body:{stack_name:s.Name}}).then(r=>{if(r.success)toast('Detenido','success');});}}>Stop</button>
-            : <button className="btn btn-sm" style={{fontSize:11,padding:'2px 8px',background:'rgba(34,197,94,.15)',color:'var(--green)',borderColor:'rgba(34,197,94,.3)'}} onClick={e=>{e.stopPropagation();api('stack-start',{method:'POST',body:{stack_name:s.Name}}).then(r=>{if(r.success)toast('Iniciado','success');});}}>Start</button>}
+            <span style={{fontSize:11,color:'var(--muted)'}}>{t("{r}/{d} servicios activos",{r:s.svc_running||0,d:s.svc_total||0})}</span>
+            {isRunning || isPartial ? <button className="btn btn-sm" style={{fontSize:11,padding:'2px 8px',background:'rgba(239,68,68,.15)',color:'var(--red)',borderColor:'rgba(239,68,68,.3)'}} onClick={e=>{e.stopPropagation();if(!confirm(t('Detener {name}?',{name:s.Name})))return;api('stack-stop',{method:'POST',body:{stack_name:s.Name}}).then(r=>{if(r.success)toast(t('Detenido'),'success');});}}>Stop</button>
+            : <button className="btn btn-sm" style={{fontSize:11,padding:'2px 8px',background:'rgba(34,197,94,.15)',color:'var(--green)',borderColor:'rgba(34,197,94,.3)'}} onClick={e=>{e.stopPropagation();api('stack-start',{method:'POST',body:{stack_name:s.Name}}).then(r=>{if(r.success)toast(t('Iniciado'),'success');});}}>Start</button>}
           </div>
         </div>;
       })}
@@ -1172,7 +1468,7 @@ function Stacks({ data, onRemove, toast }) {
 
     {deployModal && <Modal title="Deploy Stack" onClose={()=>setDeployModal(false)}>
       <div style={{marginBottom:12}}>
-        <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>Nombre del Stack</label>
+        <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>{t("Nombre del Stack")}</label>
         <input value={deployName} onChange={e=>setDeployName(e.target.value)} placeholder="my-stack" />
       </div>
       <div style={{marginBottom:12}}>
@@ -1180,7 +1476,7 @@ function Stacks({ data, onRemove, toast }) {
         <textarea value={deployYaml} onChange={e=>setDeployYaml(e.target.value)} placeholder="version: '3.8'&#10;services:&#10;  web:&#10;    image: nginx" style={{fontFamily:'monospace',fontSize:12,minHeight:250,resize:'vertical'}} />
       </div>
       <button className="btn btn-primary" onClick={doDeploy} disabled={deploying||!deployName||!deployYaml}>
-        {deploying?<><span className="spinner" style={{width:14,height:14}}/> Desplegando...</>:'Deploy Stack'}
+        {deploying?<><span className="spinner" style={{width:14,height:14}}/> {t("Desplegando...")}</>:'Deploy Stack'}
       </button>
     </Modal>}
   </>;
@@ -1218,14 +1514,14 @@ function Containers({ data, onLogs, onAction, toast }) {
 
   const bulkAction = async (action) => {
     if(selected.size===0)return;
-    if(!confirm(`${action} ${selected.size} contenedores?`))return;
+    if(!confirm(t('{action} {n} contenedores?',{action,n:selected.size})))return;
     let ok=0;
     for(const id of selected){
       const c = containers.find(x=>(x.ID||x.Names)===id);
       const r=await api('container-action',{method:'POST',body:{container_id:id,action,host:c?._host||''}});
       if(r.success)ok++;
     }
-    toast(`${action}: ${ok}/${selected.size} exitosos`,'success');
+    toast(t('{action}: {ok}/{n} exitosos',{action,ok,n:selected.size}),'success');
     setSelected(new Set());
     onAction(null,null,true); // signal reload
   };
@@ -1331,7 +1627,7 @@ function Containers({ data, onLogs, onAction, toast }) {
 
     {/* Pagination */}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12}}>
-      <div style={{fontSize:12,color:'var(--muted)'}}>{filtered.length} contenedores</div>
+      <div style={{fontSize:12,color:'var(--muted)'}}>{t("{n} contenedores",{n:filtered.length})}</div>
       <div style={{display:'flex',alignItems:'center',gap:8}}>
         <span style={{fontSize:12,color:'var(--muted)'}}>Items per page</span>
         <select value={perPage} onChange={e=>{setPerPage(parseInt(e.target.value));setPage(1);}} style={{width:60,padding:'2px 4px'}}>
@@ -1364,10 +1660,10 @@ function Networks({ data, toast }) {
   const filtered = nets.filter(n => !filter || (n.Name||'').toLowerCase().includes(filter.toLowerCase()));
   const toggle = id => { const s=new Set(selected); s.has(id)?s.delete(id):s.add(id); setSelected(s); };
   const removeSelected = async () => {
-    if(!confirm(`Eliminar ${selected.size} redes?`))return;
+    if(!confirm(t('Eliminar {n} redes?',{n:selected.size})))return;
     let ok=0;
     for(const name of selected){ const r=await api('network-remove',{method:'POST',body:{network_name:name}}); if(r.success)ok++; }
-    toast(`${ok} redes eliminadas`,'success'); setSelected(new Set());
+    toast(t('{n} redes eliminadas',{n:ok}),'success'); setSelected(new Set());
   };
 
   return <>
@@ -1392,7 +1688,7 @@ function Networks({ data, toast }) {
         </tr>)}</tbody>
       </table>
     </div>
-    <div style={{marginTop:8,fontSize:12,color:'var(--muted)'}}>{filtered.length} redes</div>
+    <div style={{marginTop:8,fontSize:12,color:'var(--muted)'}}>{t("{n} redes",{n:filtered.length})}</div>
   </>;
 }
 
@@ -1408,10 +1704,10 @@ function Volumes({ data, toast }) {
   const paged = filtered.slice((page-1)*perPage, page*perPage);
   const toggle = id => { const s=new Set(selected); s.has(id)?s.delete(id):s.add(id); setSelected(s); };
   const removeSelected = async () => {
-    if(!confirm(`Eliminar ${selected.size} volumenes?`))return;
+    if(!confirm(t('Eliminar {n} volumenes?',{n:selected.size})))return;
     let ok=0;
     for(const name of selected){ const v=vols.find(x=>x.Name===name); const r=await api('volume-remove',{method:'POST',body:{volume_name:name,host:v?._host||''}}); if(r.success)ok++; }
-    toast(`${ok} volumenes eliminados`,'success'); setSelected(new Set());
+    toast(t('{n} volumenes eliminados',{n:ok}),'success'); setSelected(new Set());
   };
 
   return <>
@@ -1435,7 +1731,7 @@ function Volumes({ data, toast }) {
       </table>
     </div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
-      <span style={{fontSize:12,color:'var(--muted)'}}>{filtered.length} volumenes</span>
+      <span style={{fontSize:12,color:'var(--muted)'}}>{t("{n} volumenes",{n:filtered.length})}</span>
       {totalPages>1 && <div style={{display:'flex',gap:2}}>
         <button className="btn btn-sm" disabled={page<=1} onClick={()=>setPage(page-1)}>‹</button>
         {Array.from({length:Math.min(totalPages,5)},(_,i)=><button key={i+1} className={`btn btn-sm ${page===i+1?'btn-primary':''}`} onClick={()=>setPage(i+1)}>{i+1}</button>)}
@@ -1477,19 +1773,19 @@ function Images({ data, toast }) {
     }
     const r = await api('image-pull',{method:'POST',body});
     setPulling(false);
-    if(r.success) toast('Imagen descargada','success');
+    if(r.success) toast(t('Imagen descargada'),'success');
     else toast(r.error||'Error','error');
   };
 
   const removeSelected = async () => {
-    if(!confirm(`Eliminar ${selected.size} imagenes?`))return;
+    if(!confirm(t('Eliminar {n} imagenes?',{n:selected.size})))return;
     let ok=0;
     for(const key of selected){
       const [id,host] = key.split('|');
       const r = await api('image-remove',{method:'POST',body:{image_id:id,host}});
       if(r.success)ok++;
     }
-    toast(`${ok} imagenes eliminadas`,'success'); setSelected(new Set());
+    toast(t('{n} imagenes eliminadas',{n:ok}),'success'); setSelected(new Set());
   };
 
   // Check if image is used by running containers
@@ -1525,7 +1821,7 @@ function Images({ data, toast }) {
       <span style={{fontSize:13,fontWeight:600}}>Images</span>
       <input placeholder="Search..." value={filter} onChange={e=>{setFilter(e.target.value);setPage(1);}} style={{maxWidth:200,padding:'4px 8px'}} />
       <button className="btn btn-sm btn-danger" disabled={selected.size===0} onClick={removeSelected}>Remove</button>
-      <div style={{marginLeft:'auto',fontSize:11,color:'var(--muted)'}}>{imgs.length} imagenes en {hosts.length} nodos</div>
+      <div style={{marginLeft:'auto',fontSize:11,color:'var(--muted)'}}>{t("{n} imagenes en {h} nodos",{n:imgs.length,h:hosts.length})}</div>
     </div>
     <div className="card" style={{overflowX:'auto',padding:0}}>
       <table>
@@ -1549,7 +1845,7 @@ function Images({ data, toast }) {
       </table>
     </div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
-      <span style={{fontSize:12,color:'var(--muted)'}}>{filtered.length} imagenes</span>
+      <span style={{fontSize:12,color:'var(--muted)'}}>{t("{n} imagenes",{n:filtered.length})}</span>
       {totalPages>1 && <div style={{display:'flex',gap:2}}>
         <button className="btn btn-sm" disabled={page<=1} onClick={()=>setPage(page-1)}>‹</button>
         {Array.from({length:Math.min(totalPages,5)},(_,i)=><button key={i+1} className={`btn btn-sm ${page===i+1?'btn-primary':''}`} onClick={()=>setPage(i+1)}>{i+1}</button>)}
@@ -1576,7 +1872,7 @@ function Settings({ onSave, toast }) {
 
   const save = async () => {
     const r = await api('config/save', {method:'POST', body:{swarm_hosts:hosts, poll_interval:poll}});
-    if (r.success) toast('Configuracion guardada','success');
+    if (r.success) toast(t('Configuracion guardada'),'success');
     else toast(r.error||'Error','error');
   };
 
@@ -1584,7 +1880,7 @@ function Settings({ onSave, toast }) {
     setTesting(i); setTestResult(null);
     const h = hosts[i];
     const pwd = h.password === '***' ? '' : h.password;
-    if (!pwd) { toast('Ingresa la password para probar','error'); setTesting(null); return; }
+    if (!pwd) { toast(t('Ingresa la password para probar'),'error'); setTesting(null); return; }
     const r = await api('test-connection', {method:'POST', body:{host:h.host,user:h.user,password:pwd}});
     setTestResult({index:i, ...r}); setTesting(null);
   };
@@ -1592,35 +1888,35 @@ function Settings({ onSave, toast }) {
   if (!config) return <div style={{textAlign:'center',padding:40}}><div className="spinner"/></div>;
 
   return <div className="card">
-    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>Configuracion Docker Swarm</h3>
+    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>{t("Configuracion Docker Swarm")}</h3>
 
     <div style={{marginBottom:16}}>
-      <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>Intervalo de polling (segundos)</label>
+      <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>{t("Intervalo de polling (segundos)")}</label>
       <input type="number" value={poll} onChange={e=>setPoll(parseInt(e.target.value)||30)} min={10} max={300} style={{maxWidth:120}} />
     </div>
 
-    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>Hosts Swarm (SSH)</h4>
+    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>{t("Hosts Swarm (SSH)")}</h4>
     {hosts.map((h,i) => <div key={i} style={{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:8}}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:8}}>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>Nombre</label><input value={h.name} onChange={e=>updateHost(i,'name',e.target.value)} placeholder="IASERVER01"/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>Host/IP</label><input value={h.host} onChange={e=>updateHost(i,'host',e.target.value)} placeholder="190.160.10.129"/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>Usuario</label><input value={h.user} onChange={e=>updateHost(i,'user',e.target.value)} placeholder="alfonso"/></div>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Nombre")}</label><input value={h.name} onChange={e=>updateHost(i,'name',e.target.value)} placeholder={t("ej. swarm-manager-1")}/></div>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Host/IP")}</label><input value={h.host} onChange={e=>updateHost(i,'host',e.target.value)} placeholder={t("ej. 192.168.1.10")}/></div>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Usuario")}</label><input value={h.user} onChange={e=>updateHost(i,'user',e.target.value)} placeholder={t("ej. usuario-ssh")}/></div>
         <div><label style={{fontSize:11,color:'var(--muted)'}}>Password</label><input type="password" value={h.password} onChange={e=>updateHost(i,'password',e.target.value)}/></div>
       </div>
       <div style={{display:'flex',gap:8}}>
         <button className="btn btn-sm" onClick={()=>testConn(i)} disabled={testing===i}>
-          {testing===i ? <><span className="spinner" style={{width:14,height:14}}/> Probando...</> : 'Probar conexion'}
+          {testing===i ? <><span className="spinner" style={{width:14,height:14}}/> {t("Probando...")}</> : t('Probar conexion')}
         </button>
-        <button className="btn btn-sm btn-danger" onClick={()=>removeHost(i)}>Eliminar</button>
+        <button className="btn btn-sm btn-danger" onClick={()=>removeHost(i)}>{t("Eliminar")}</button>
         {testResult && testResult.index===i && <span style={{fontSize:12,color:testResult.success?'var(--green)':'var(--red)',alignSelf:'center'}}>
-          {testResult.success ? `OK - Swarm activo, ${testResult.nodes} nodos, ${testResult.managers} managers` : testResult.error}
+          {testResult.success ? t('OK - Swarm activo, {nodes} nodos, {managers} managers',{nodes:testResult.nodes,managers:testResult.managers}) : testResult.error}
         </span>}
       </div>
     </div>)}
 
     <div style={{display:'flex',gap:8,marginTop:12}}>
-      <button className="btn" onClick={addHost}>+ Agregar Host</button>
-      <button className="btn btn-primary" onClick={save}>Guardar Configuracion</button>
+      <button className="btn" onClick={addHost}>{t("+ Agregar Host")}</button>
+      <button className="btn btn-primary" onClick={save}>{t("Guardar Configuracion")}</button>
     </div>
 
     <DiskAutoPruneSettings toast={toast} />
@@ -1663,7 +1959,7 @@ function NodeBalanceCard({ node: n, maxTasks, rebalancing, onRebalance, history 
         <span>CPU ({n.cpu_count} cores)</span><span style={{color:cpuColor,fontWeight:600}}>{n.cpu_percent}%</span>
       </div>
       <ProgressBar percent={n.cpu_percent} color={cpuColor} />
-      {cpuHistory.length >= 2 && <div style={{marginTop:4}} title="CPU últimas 24h">
+      {cpuHistory.length >= 2 && <div style={{marginTop:4}} title={t("CPU últimas 24h")}>
         <Sparkline points={cpuHistory} width={280} height={28} color={cpuColor} maxValue={100} />
       </div>}
     </div>
@@ -1674,7 +1970,7 @@ function NodeBalanceCard({ node: n, maxTasks, rebalancing, onRebalance, history 
         <span>RAM</span><span style={{color:memColor,fontWeight:600}}>{n.mem_total ? `${fmtBytes(n.mem_used)} / ${fmtBytes(n.mem_total)}` : '-'} ({n.mem_percent}%)</span>
       </div>
       <ProgressBar percent={n.mem_percent} color={memColor} />
-      {memHistory.length >= 2 && <div style={{marginTop:4}} title="RAM últimas 24h">
+      {memHistory.length >= 2 && <div style={{marginTop:4}} title={t("RAM últimas 24h")}>
         <Sparkline points={memHistory} width={280} height={28} color={memColor} maxValue={100} />
       </div>}
     </div>
@@ -1683,14 +1979,14 @@ function NodeBalanceCard({ node: n, maxTasks, rebalancing, onRebalance, history 
     {n.services && n.services.length > 0 && <>
       <div onClick={()=>setExpanded(!expanded)} style={{cursor:'pointer',fontSize:12,color:'var(--accent)',display:'flex',alignItems:'center',gap:4,marginBottom:expanded?8:0}}>
         <span style={{transform:expanded?'rotate(90deg)':'none',transition:'transform .2s',display:'inline-block'}}>&#9654;</span>
-        {n.services.length} servicios
+        {t("{n} servicios (lb)",{n:n.services.length})}
       </div>
       {expanded && <div style={{maxHeight:200,overflow:'auto'}}>
         {n.services.map((svc,si) => <div key={si} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
           <span style={{fontFamily:'monospace'}}>{svc}</span>
           <button className="btn btn-sm" style={{fontSize:10,padding:'2px 8px'}}
             disabled={rebalancing===svc} onClick={()=>onRebalance(svc)}>
-            {rebalancing===svc ? '...' : 'Rebalancear'}
+            {rebalancing===svc ? '...' : t('Rebalancear')}
           </button>
         </div>)}
       </div>}
@@ -1740,7 +2036,7 @@ function LoadBalance({ data, toast }) {
     return () => { cancelled = true; };
   }, [data?.updated_at]);
 
-  if (!data) return <div className="card" style={{padding:20,color:'var(--muted)'}}>Sin datos de balance</div>;
+  if (!data) return <div className="card" style={{padding:20,color:'var(--muted)'}}>{t("Sin datos de balance")}</div>;
   if (data.error) return <div className="card" style={{padding:20,color:'var(--red)'}}>{data.error}</div>;
 
   const { nodes, total_tasks, balance_score, recommendation } = data;
@@ -1748,20 +2044,20 @@ function LoadBalance({ data, toast }) {
   const maxTasks = Math.max(...nodes.map(n => n.tasks_running), 1);
 
   const doRebalance = async (svcName) => {
-    if (!confirm(`Rebalancear ${svcName}? Esto forzara un re-deploy del servicio.`)) return;
+    if (!confirm(t('Rebalancear {svc}? Esto forzara un re-deploy del servicio.',{svc:svcName}))) return;
     setRebalancing(svcName);
     try {
       const r = await api('rebalance-service', {method:'POST', body:{service_name: svcName}});
-      if (r.success) toast(`${svcName} rebalanceando...`, 'success');
+      if (r.success) toast(t('{svc} rebalanceando...',{svc:svcName}), 'success');
       else toast(r.error || 'Error', 'error');
-    } catch(e) { toast('Error de conexion', 'error'); }
+    } catch(e) { toast(t('Error de conexion'), 'error'); }
     setRebalancing(null);
   };
 
   // Rebalance-all flow: first call returns dry-run plan, second call executes
   const doRebalanceAllDryRun = async () => {
     const r = await api('balance/rebalance-all', {method:'POST', body:{dry_run: true, delay_sec: 5}});
-    if (r._http === 403) { toast('Requiere admin', 'error'); return; }
+    if (r._http === 403) { toast(t('Requiere admin'), 'error'); return; }
     if (r.error) { toast(r.error, 'error'); return; }
     setRebalanceAllModal(r);
   };
@@ -1775,12 +2071,12 @@ function LoadBalance({ data, toast }) {
     try {
       const r = await api('balance/rebalance-all', {method:'POST', body:{dry_run: false, delay_sec: 5}});
       if (r.error) { toast(r.error, 'error'); setRebalancingAll(false); return; }
-      if (!r.started || !r.job_id) { toast(r.reason || 'No se pudo iniciar', 'error'); setRebalancingAll(false); return; }
+      if (!r.started || !r.job_id) { toast(r.reason || t('No se pudo iniciar'), 'error'); setRebalancingAll(false); return; }
       // Seed the live job state, kick off polling
       setRebalanceJob({ job_id: r.job_id, status: 'running', total: r.total, completed: 0,
                          failed: 0, current_service: null, current_index: 0, results: [],
                          elapsed_sec: 0, eta_sec: null, progress_pct: 0 });
-      toast(`Rebalance arrancado: ${r.total} servicios`, 'success');
+      toast(t('Rebalance arrancado: {n} servicios',{n:r.total}), 'success');
       const poll = async () => {
         const s = await api(`balance/rebalance-status?job_id=${encodeURIComponent(r.job_id)}`);
         if (s.error) return;
@@ -1791,11 +2087,11 @@ function LoadBalance({ data, toast }) {
           setRebalancingAll(false);
           refreshInsights();
           const ok = s.failed === 0;
-          toast(`Rebalance ${ok ? 'completo' : 'con errores'}: ${s.completed}/${s.total} (${s.failed} fail)`, ok ? 'success' : 'error');
+          toast(t('Rebalance {state}: {completed}/{total} ({failed} fail)',{state: ok ? t('completo') : t('con errores'), completed:s.completed, total:s.total, failed:s.failed}), ok ? 'success' : 'error');
         }
       };
       poll();
-    } catch(e) { toast('Error: ' + (e.message||e), 'error'); setRebalancingAll(false); }
+    } catch(e) { toast(t('Error: {msg}',{msg:(e.message||e)}), 'error'); setRebalancingAll(false); }
   };
 
   // Cleanup polling on unmount
@@ -1833,10 +2129,10 @@ function LoadBalance({ data, toast }) {
       <div className="card" style={{padding:20,textAlign:'center'}}>
         <div style={{fontSize:48,fontWeight:800,color:scoreColor,lineHeight:1}}>{balance_score}</div>
         <div style={{fontSize:12,color:'var(--muted)',marginTop:4}}>Balance Score</div>
-        <div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>{total_tasks} tasks en {nodes.length} nodos</div>
+        <div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>{t("{tasks} tasks en {nodes} nodos",{tasks:total_tasks,nodes:nodes.length})}</div>
       </div>
       <div className="card" style={{padding:20}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Distribucion de Tasks</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>{t("Distribucion de Tasks")}</div>
         {/* Stacked bar */}
         <div style={{display:'flex',height:32,borderRadius:6,overflow:'hidden',marginBottom:12}}>
           {nodes.map((n,i) => {
@@ -1869,9 +2165,9 @@ function LoadBalance({ data, toast }) {
         <div>
           <div style={{fontSize:13,fontWeight:600,display:'flex',alignItems:'center',gap:6}}>
             {rebalanceJob.status === 'running'
-              ? <><span className="spinner" style={{width:14,height:14}}/> Rebalance en curso</>
-              : rebalanceJob.failed > 0 ? '⚠ Rebalance terminado con errores'
-              : '✓ Rebalance completado'}
+              ? <><span className="spinner" style={{width:14,height:14}}/> {t("Rebalance en curso")}</>
+              : rebalanceJob.failed > 0 ? t('⚠ Rebalance terminado con errores')
+              : t('✓ Rebalance completado')}
           </div>
           <div style={{fontSize:11,color:'var(--muted)',fontFamily:'monospace',marginTop:2}}>
             job <strong>{rebalanceJob.job_id}</strong> · started by {rebalanceJob.started_by || '?'}
@@ -1896,26 +2192,26 @@ function LoadBalance({ data, toast }) {
         }}/>
       </div>
       {rebalanceJob.current_service && <div style={{fontSize:12,color:'var(--accent)',marginBottom:8,fontFamily:'monospace'}}>
-        ▶ ahora: <strong>{rebalanceJob.current_service}</strong> ({rebalanceJob.current_index}/{rebalanceJob.total})
+        {t("▶ ahora: ")}<strong>{rebalanceJob.current_service}</strong> ({rebalanceJob.current_index}/{rebalanceJob.total})
       </div>}
       {/* Last 6 results */}
       {(rebalanceJob.results || []).slice(-6).reverse().map((r, i) => <div key={i} style={{fontSize:11,fontFamily:'monospace',color: r.success ? 'var(--green)' : 'var(--red)', marginBottom:2}}>
         {r.success ? '✓' : '✗'} {r.service} {!r.success && r.error && <span style={{color:'var(--muted)'}}>— {r.error}</span>}
       </div>)}
-      {rebalanceJob.status !== 'running' && <button className="btn btn-sm" style={{marginTop:8}} onClick={()=>setRebalanceJob(null)}>Ocultar</button>}
+      {rebalanceJob.status !== 'running' && <button className="btn btn-sm" style={{marginTop:8}} onClick={()=>setRebalanceJob(null)}>{t("Ocultar")}</button>}
     </div>}
 
     {insights && !insights.error && <div className="card" style={{padding:16,marginBottom:16}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:12,flexWrap:'wrap'}}>
         <div>
-          <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>Diagnóstico de balance</div>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>{t("Diagnóstico de balance")}</div>
           <div style={{fontSize:13,color:'var(--text)'}}>{insights.verdict}</div>
         </div>
         <button className="btn btn-primary"
           disabled={rebalancingAll || !insights.totals?.eligible}
           onClick={doRebalanceAllDryRun}>
-          {rebalancingAll ? <span><span className="spinner" style={{width:12,height:12,verticalAlign:'middle',marginRight:4}}/> Rebalanceando…</span>
-            : `⚖ Rebalance automático (${insights.totals?.eligible || 0})`}
+          {rebalancingAll ? <span><span className="spinner" style={{width:12,height:12,verticalAlign:'middle',marginRight:4}}/> {t("Rebalanceando…")}</span>
+            : t('⚖ Rebalance automático ({n})',{n:insights.totals?.eligible || 0})}
         </button>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:10,fontSize:12}}>
@@ -1926,29 +2222,29 @@ function LoadBalance({ data, toast }) {
           </div>
         </div>
         {insights.hot_node && <div style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:6}}>
-          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>Más cargado</div>
+          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>{t("Más cargado")}</div>
           <div style={{fontWeight:600}}>{insights.hot_node.name}</div>
-          <div style={{color:'var(--muted)',fontSize:11}}>{insights.hot_node.tasks} tasks</div>
+          <div style={{color:'var(--muted)',fontSize:11}}>{t("{n} tasks",{n:insights.hot_node.tasks})}</div>
         </div>}
         {insights.cold_node && <div style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:6}}>
-          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>Menos cargado</div>
+          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>{t("Menos cargado")}</div>
           <div style={{fontWeight:600}}>{insights.cold_node.name}</div>
-          <div style={{color:'var(--muted)',fontSize:11}}>{insights.cold_node.tasks} tasks</div>
+          <div style={{color:'var(--muted)',fontSize:11}}>{t("{n} tasks",{n:insights.cold_node.tasks})}</div>
         </div>}
         <div style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:6}}>
-          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>Elegibles</div>
+          <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>{t("Elegibles")}</div>
           <div style={{fontWeight:700,fontSize:18,color:'var(--accent)'}}>{insights.totals?.eligible || 0}</div>
-          <div style={{color:'var(--muted)',fontSize:10}}>replicas&gt;1, sin pin</div>
+          <div style={{color:'var(--muted)',fontSize:10}}>{t("replicas>1, sin pin")}</div>
         </div>
         <div style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:6}}>
           <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>Pinned</div>
           <div style={{fontWeight:700,fontSize:18,color:'var(--muted)'}}>{insights.totals?.pinned || 0}</div>
-          <div style={{color:'var(--muted)',fontSize:10}}>no se pueden mover</div>
+          <div style={{color:'var(--muted)',fontSize:10}}>{t("no se pueden mover")}</div>
         </div>
         <div style={{padding:'6px 10px',border:'1px solid var(--border)',borderRadius:6}}>
           <div style={{color:'var(--muted)',fontSize:11,textTransform:'uppercase'}}>Singletons</div>
           <div style={{fontWeight:700,fontSize:18,color:'var(--muted)'}}>{insights.totals?.singletons || 0}</div>
-          <div style={{color:'var(--muted)',fontSize:10}}>replicas=1</div>
+          <div style={{color:'var(--muted)',fontSize:10}}>{t("replicas=1")}</div>
         </div>
       </div>
     </div>}
@@ -1956,16 +2252,14 @@ function LoadBalance({ data, toast }) {
     {/* Confirm modal for rebalance-all */}
     {rebalanceAllModal && <div className="modal-overlay" onClick={()=>setRebalanceAllModal(null)}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:680}}>
-        <div style={{fontSize:16,fontWeight:600,marginBottom:8}}>⚖ Confirmar rebalance automático</div>
+        <div style={{fontSize:16,fontWeight:600,marginBottom:8}}>{t("⚖ Confirmar rebalance automático")}</div>
         <div style={{fontSize:12,color:'var(--muted)',marginBottom:12}}>
-          Vas a force-update <strong style={{color:'var(--accent)'}}>{rebalanceAllModal.count}</strong> servicios en secuencia,
-          con <strong>{rebalanceAllModal.delay_sec}s</strong> de pausa entre cada uno. Cada force-update dispara un rolling restart
-          que Swarm aprovecha para redistribuir las réplicas.
+          {t("Vas a force-update {count} servicios en secuencia, con {delay}s de pausa entre cada uno. Cada force-update dispara un rolling restart que Swarm aprovecha para redistribuir las réplicas.",{count:rebalanceAllModal.count,delay:rebalanceAllModal.delay_sec})}
         </div>
         <div style={{padding:'8px 12px',background:'rgba(255,255,255,.04)',border:'1px solid var(--border)',borderRadius:6,marginBottom:12,fontSize:12}}>
-          <div style={{color:'var(--muted)',marginBottom:4}}>Saltados:</div>
-          <div>· <strong>{rebalanceAllModal.pinned_skipped}</strong> con constraint node.id/hostname (no pueden moverse)</div>
-          <div>· <strong>{rebalanceAllModal.singletons_skipped}</strong> con replicas=1 (no hay nada que distribuir)</div>
+          <div style={{color:'var(--muted)',marginBottom:4}}>{t("Saltados:")}</div>
+          <div>{t("· {n} con constraint node.id/hostname (no pueden moverse)",{n:rebalanceAllModal.pinned_skipped})}</div>
+          <div>{t("· {n} con replicas=1 (no hay nada que distribuir)",{n:rebalanceAllModal.singletons_skipped})}</div>
         </div>
         <div style={{maxHeight:200,overflow:'auto',padding:'6px 10px',background:'#000',border:'1px solid var(--border)',
           borderRadius:6,marginBottom:12,fontFamily:'monospace',fontSize:11,color:'#0f0'}}>
@@ -1973,12 +2267,11 @@ function LoadBalance({ data, toast }) {
         </div>
         <div style={{padding:'6px 10px',background:'rgba(234,179,8,.1)',border:'1px solid rgba(234,179,8,.3)',
           borderRadius:6,fontSize:11,color:'var(--yellow)',marginBottom:16}}>
-          ⚠ Tiempo total estimado: ~{Math.ceil((rebalanceAllModal.count * rebalanceAllModal.delay_sec) / 60)} min.
-          Cada servicio hace rolling update — Swarm mantiene N-1 réplicas vivas durante el cambio.
+          {t("⚠ Tiempo total estimado: ~{min} min. Cada servicio hace rolling update — Swarm mantiene N-1 réplicas vivas durante el cambio.",{min:Math.ceil((rebalanceAllModal.count * rebalanceAllModal.delay_sec) / 60)})}
         </div>
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button className="btn" onClick={()=>setRebalanceAllModal(null)}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doRebalanceAllConfirm}>Ejecutar rebalance</button>
+          <button className="btn" onClick={()=>setRebalanceAllModal(null)}>{t("Cancelar")}</button>
+          <button className="btn btn-primary" onClick={doRebalanceAllConfirm}>{t("Ejecutar rebalance")}</button>
         </div>
       </div>
     </div>}
@@ -2021,14 +2314,14 @@ function Trends({ toast }) {
         }
         setHistoryByHost(result);
       }
-    } catch (e) { toast('Error cargando tendencias', 'error'); }
+    } catch (e) { toast(t('Error cargando tendencias'), 'error'); }
     setLoading(false);
   }, [duration, toast]);
 
   useEffect(() => { reload(); }, [reload]);
 
   if (!trends) return <div className="card" style={{padding:20,color:'var(--muted)'}}>
-    {loading ? 'Cargando…' : 'Sin datos'}
+    {loading ? t('Cargando…') : t('Sin datos')}
   </div>;
 
   const totalSamples = (trends.nodes || []).reduce((sum, n) => sum + (n.samples || 0), 0);
@@ -2044,12 +2337,12 @@ function Trends({ toast }) {
       <button className="btn btn-sm" onClick={reload} disabled={loading}>{loading ? '...' : 'Refresh'}</button>
       <div style={{flex:1}} />
       <div style={{fontSize:11,color:'var(--muted)'}}>
-        {totalSamples.toLocaleString()} samples · más antiguo: {oldestStr}
+        {t("{n} samples · más antiguo: {old}",{n:totalSamples.toLocaleString(),old:oldestStr})}
       </div>
     </div>
 
     {trends.nodes?.length === 0 && <div className="card" style={{padding:20,color:'var(--muted)',textAlign:'center'}}>
-      Aún no hay samples acumulados para esta ventana. El sampler escribe uno por nodo cada poll cycle (~30s).
+      {t("Aún no hay samples acumulados para esta ventana. El sampler escribe uno por nodo cada poll cycle (~30s).")}
     </div>}
 
     {/* One large card per node */}
@@ -2115,8 +2408,8 @@ const SEV_COLOR = {
 
 const STATUS_BADGE = {
   pass: { color: 'var(--green)', bg: 'rgba(34,197,94,.15)', label: 'OK' },
-  warn: { color: 'var(--yellow)', bg: 'rgba(234,179,8,.15)', label: 'Atención' },
-  fail: { color: 'var(--red)', bg: 'rgba(239,68,68,.15)', label: 'Falla' },
+  warn: { color: 'var(--yellow)', bg: 'rgba(234,179,8,.15)', label: t('Atención') },
+  fail: { color: 'var(--red)', bg: 'rgba(239,68,68,.15)', label: t('Falla') },
   skip: { color: 'var(--muted)', bg: 'rgba(113,113,122,.15)', label: 'N/A' },
 };
 
@@ -2147,7 +2440,7 @@ function Audit({ data, onRefresh, toast }) {
   const [applying, setApplying] = useState(null);  // {service, check_id} being applied
   const [applyModal, setApplyModal] = useState(null);  // dry-run result + confirm dialog
 
-  if (!data) return <div className="card" style={{padding:20,color:'var(--muted)'}}>Cargando auditoría…</div>;
+  if (!data) return <div className="card" style={{padding:20,color:'var(--muted)'}}>{t("Cargando auditoría…")}</div>;
   if (data.error) return <div className="card" style={{padding:20,color:'var(--red)'}}>{data.error}</div>;
 
   const { cluster_grade, avg_rank, healthy_nodes, total_nodes, service_count, grade_distribution, worst_offenders, audits } = data;
@@ -2174,11 +2467,11 @@ function Audit({ data, onRefresh, toast }) {
     setApplying({service, check_id});
     try {
       const r = await api('policy/apply', {method:'POST', body:{service_name: service, check_id, confirm: false}});
-      if (r._http === 403) { toast('Requiere admin para aplicar fixes', 'error'); setApplying(null); return; }
+      if (r._http === 403) { toast(t('Requiere admin para aplicar fixes'), 'error'); setApplying(null); return; }
       if (r.error) { toast(r.error, 'error'); setApplying(null); return; }
-      if (!r.applicable) { toast(`No aplicable: ${r.reason}`, 'info'); setApplying(null); onRefresh(); return; }
+      if (!r.applicable) { toast(t('No aplicable: {reason}',{reason:r.reason}), 'info'); setApplying(null); onRefresh(); return; }
       setApplyModal({service, check_id, command: r.command, description: r.description, reason: r.reason});
-    } catch (e) { toast('Error: ' + (e.message||e), 'error'); }
+    } catch (e) { toast(t('Error: {msg}',{msg:(e.message||e)}), 'error'); }
     setApplying(null);
   };
 
@@ -2190,9 +2483,9 @@ function Audit({ data, onRefresh, toast }) {
     try {
       const r = await api('policy/apply', {method:'POST', body:{service_name: service, check_id, confirm: true}});
       if (r.error) toast(r.error, 'error');
-      else if (r.applied) { toast(`✓ Fix aplicado a ${service}`, 'success'); onRefresh(); }
-      else toast(`Falló (rc=${r.rc}): ${r.error || r.output || 'unknown'}`, 'error');
-    } catch (e) { toast('Error: ' + (e.message||e), 'error'); }
+      else if (r.applied) { toast(t('✓ Fix aplicado a {service}',{service}), 'success'); onRefresh(); }
+      else toast(t('Falló (rc={rc}): {detail}',{rc:r.rc,detail:r.error || r.output || 'unknown'}), 'error');
+    } catch (e) { toast(t('Error: {msg}',{msg:(e.message||e)}), 'error'); }
     setApplying(null);
   };
 
@@ -2201,12 +2494,12 @@ function Audit({ data, onRefresh, toast }) {
     <div style={{display:'grid',gridTemplateColumns:'220px 1fr',gap:16,marginBottom:16}}>
       <div className="card" style={{padding:20,textAlign:'center'}}>
         <GradeBadge grade={cluster_grade} size="lg" />
-        <div style={{fontSize:12,color:'var(--muted)',marginTop:8}}>Calificación del cluster</div>
-        <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>promedio: {avg_rank?.toFixed?.(2) ?? avg_rank} / 4</div>
-        <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{service_count} servicios · {healthy_nodes}/{total_nodes} nodos sanos</div>
+        <div style={{fontSize:12,color:'var(--muted)',marginTop:8}}>{t("Calificación del cluster")}</div>
+        <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>{t("promedio: {avg} / 4",{avg:avg_rank?.toFixed?.(2) ?? avg_rank})}</div>
+        <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{t("{n} servicios · {h}/{t} nodos sanos",{n:service_count,h:healthy_nodes,t:total_nodes})}</div>
       </div>
       <div className="card" style={{padding:20}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>Distribución</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>{t("Distribución")}</div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
           {['A','B','C','D','F'].map(g => {
             const count = grade_distribution?.[g] || 0;
@@ -2219,19 +2512,19 @@ function Audit({ data, onRefresh, toast }) {
                 <GradeBadge grade={g} size="sm" />
                 <span style={{fontSize:18,fontWeight:700}}>{count}</span>
               </div>
-              <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{pct}% del total</div>
+              <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{t("{pct}% del total",{pct})}</div>
             </div>;
           })}
         </div>
         <div style={{display:'flex',gap:16,fontSize:12,color:'var(--muted)'}}>
-          <span><strong style={{color:'var(--red)'}}>{totalP0}</strong> issues P0 (críticos)</span>
-          <span><strong style={{color:'#f97316'}}>{totalP1}</strong> issues P1 (importantes)</span>
+          <span>{t("{n} issues P0 (críticos)",{n:totalP0})}</span>
+          <span>{t("{n} issues P1 (importantes)",{n:totalP1})}</span>
         </div>
       </div>
     </div>
 
     {worst_offenders && worst_offenders.length > 0 && <div className="card" style={{padding:16,marginBottom:16}}>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Top {worst_offenders.length} con peor calificación</div>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>{t("Top {n} con peor calificación",{n:worst_offenders.length})}</div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         {worst_offenders.map((w, i) => <button key={i}
           onClick={()=>{ setExpanded(w.service_name); setFilter('all'); document.getElementById('audit-row-'+w.service_name)?.scrollIntoView({behavior:'smooth',block:'center'}); }}
@@ -2246,24 +2539,23 @@ function Audit({ data, onRefresh, toast }) {
 
     {/* Filters */}
     <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center',flexWrap:'wrap'}}>
-      <input placeholder="Filtrar por stack…" value={stackFilter}
+      <input placeholder={t("Filtrar por stack…")} value={stackFilter}
         onChange={e=>setStackFilter(e.target.value)} style={{maxWidth:240}} />
-      <button className={`btn btn-sm ${filter==='all'?'btn-primary':''}`} onClick={()=>setFilter('all')}>Todos ({audits.length})</button>
-      <button className={`btn btn-sm ${filter==='non-a'?'btn-primary':''}`} onClick={()=>setFilter('non-a')}>Con issues ({audits.filter(a=>a.grade!=='A').length})</button>
-      <button className={`btn btn-sm ${filter==='f-only'?'btn-primary':''}`} onClick={()=>setFilter('f-only')}>Solo F ({audits.filter(a=>a.grade==='F').length})</button>
+      <button className={`btn btn-sm ${filter==='all'?'btn-primary':''}`} onClick={()=>setFilter('all')}>{t("Todos ({n})",{n:audits.length})}</button>
+      <button className={`btn btn-sm ${filter==='non-a'?'btn-primary':''}`} onClick={()=>setFilter('non-a')}>{t("Con issues ({n})",{n:audits.filter(a=>a.grade!=='A').length})}</button>
+      <button className={`btn btn-sm ${filter==='f-only'?'btn-primary':''}`} onClick={()=>setFilter('f-only')}>{t("Solo F ({n})",{n:audits.filter(a=>a.grade==='F').length})}</button>
       <button className="btn btn-sm" onClick={onRefresh}>Refresh</button>
     </div>
 
     {/* Confirmation modal for apply */}
     {applyModal && <div className="modal-overlay" onClick={()=>setApplyModal(null)}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:680}}>
-        <div style={{fontSize:16,fontWeight:600,marginBottom:8}}>⚡ Confirmar fix automático</div>
+        <div style={{fontSize:16,fontWeight:600,marginBottom:8}}>{t("⚡ Confirmar fix automático")}</div>
         <div style={{fontSize:12,color:'var(--muted)',marginBottom:16}}>
-          Vas a ejecutar <code>docker service update</code> sobre <strong style={{color:'var(--accent)'}}>{applyModal.service}</strong>.
-          Swarm hará un rolling update — las réplicas se reemplazarán una por una.
+          {t("Vas a ejecutar")} <code>docker service update</code> {t("sobre")} <strong style={{color:'var(--accent)'}}>{applyModal.service}</strong>{t(". Swarm hará un rolling update — las réplicas se reemplazarán una por una.")}
         </div>
         <div style={{padding:'8px 12px',background:'rgba(255,255,255,.04)',border:'1px solid var(--border)',borderRadius:6,marginBottom:12}}>
-          <div style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',marginBottom:4}}>Acción</div>
+          <div style={{fontSize:11,color:'var(--muted)',textTransform:'uppercase',marginBottom:4}}>{t("Acción")}</div>
           <div style={{fontSize:13}}>{applyModal.description}</div>
         </div>
         <div style={{padding:'8px 12px',background:'#000',border:'1px solid var(--border)',borderRadius:6,marginBottom:12,
@@ -2272,11 +2564,11 @@ function Audit({ data, onRefresh, toast }) {
         </div>
         <div style={{padding:'6px 10px',background:'rgba(234,179,8,.1)',border:'1px solid rgba(234,179,8,.3)',
           borderRadius:6,fontSize:11,color:'var(--yellow)',marginBottom:16}}>
-          ⚠ Pre-condición confirmada: {applyModal.reason || 'check sigue fallando'}
+          {t("⚠ Pre-condición confirmada: {reason}",{reason:applyModal.reason || t('check sigue fallando')})}
         </div>
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-          <button className="btn" onClick={()=>setApplyModal(null)}>Cancelar</button>
-          <button className="btn btn-primary" onClick={doApplyConfirm}>Aplicar ahora</button>
+          <button className="btn" onClick={()=>setApplyModal(null)}>{t("Cancelar")}</button>
+          <button className="btn btn-primary" onClick={doApplyConfirm}>{t("Aplicar ahora")}</button>
         </div>
       </div>
     </div>}
@@ -2285,15 +2577,15 @@ function Audit({ data, onRefresh, toast }) {
     <div className="card" style={{padding:0,overflow:'hidden'}}>
       <table>
         <thead><tr>
-          <th style={{width:60}}>Grado</th>
-          <th>Servicio</th>
+          <th style={{width:60}}>{t("Grado")}</th>
+          <th>{t("Servicio")}</th>
           <th>Stack</th>
-          <th>Modo</th>
+          <th>{t("Modo")}</th>
           <th>Issues</th>
           <th style={{width:70}}></th>
         </tr></thead>
         <tbody>
-          {visible.length === 0 && <tr><td colSpan={6} style={{textAlign:'center',color:'var(--muted)',padding:20}}>Nada que mostrar</td></tr>}
+          {visible.length === 0 && <tr><td colSpan={6} style={{textAlign:'center',color:'var(--muted)',padding:20}}>{t("Nada que mostrar")}</td></tr>}
           {visible.map(a => {
             const isExp = expanded === a.service_name;
             const sev = a.summary?.issues_by_severity || {};
@@ -2310,7 +2602,7 @@ function Audit({ data, onRefresh, toast }) {
                   {sev.P1 > 0 && <span style={{padding:'2px 8px',borderRadius:9999,fontSize:11,fontWeight:600,background:'rgba(249,115,22,.15)',color:'#f97316',marginRight:4}}>P1×{sev.P1}</span>}
                   {sev.P2 > 0 && <span className="badge badge-yellow" style={{marginRight:4}}>P2×{sev.P2}</span>}
                   {sev.P3 > 0 && <span className="badge badge-blue" style={{marginRight:4}}>P3×{sev.P3}</span>}
-                  {(sev.P0 + sev.P1 + sev.P2 + sev.P3) === 0 && <span className="badge badge-green">Sin issues</span>}
+                  {(sev.P0 + sev.P1 + sev.P2 + sev.P3) === 0 && <span className="badge badge-green">{t("Sin issues")}</span>}
                 </td>
                 <td style={{textAlign:'right',color:'var(--muted)',fontSize:18}}>{isExp ? '▾' : '▸'}</td>
               </tr>
@@ -2319,10 +2611,10 @@ function Audit({ data, onRefresh, toast }) {
                   <div style={{fontSize:11,color:'var(--muted)',marginBottom:8,fontFamily:'monospace'}}>{a.image}</div>
                   <table style={{background:'transparent'}}>
                     <thead><tr>
-                      <th style={{width:60}}>Sev</th>
-                      <th style={{width:100}}>Estado</th>
+                      <th style={{width:60}}>{t("Sev")}</th>
+                      <th style={{width:100}}>{t("Estado")}</th>
                       <th>Check</th>
-                      <th>Detalle</th>
+                      <th>{t("Detalle")}</th>
                     </tr></thead>
                     <tbody>
                       {a.findings.map(f => {
@@ -2343,8 +2635,8 @@ function Audit({ data, onRefresh, toast }) {
                                 disabled={applying && applying.service === a.service_name && applying.check_id === f.id}
                                 onClick={(e) => { e.stopPropagation(); doApplyDryRun(a.service_name, f.id); }}>
                                 {applying && applying.service === a.service_name && applying.check_id === f.id
-                                  ? <span><span className="spinner" style={{width:12,height:12,verticalAlign:'middle',marginRight:4}}/> Aplicando…</span>
-                                  : '⚡ Aplicar fix automático'}
+                                  ? <span><span className="spinner" style={{width:12,height:12,verticalAlign:'middle',marginRight:4}}/> {t("Aplicando…")}</span>
+                                  : t('⚡ Aplicar fix automático')}
                               </button>
                             </div>}
                           </td>
@@ -2410,7 +2702,7 @@ function App() {
         case 'loadbalance': setLoadBalance(await api('load-balance')); break;
         case 'audit': setAudit(await api('policy/audit')); break;
       }
-    } catch(e) { toast('Error cargando datos','error'); }
+    } catch(e) { toast(t('Error cargando datos'),'error'); }
     setLoading(false);
   }, []);
 
@@ -2434,11 +2726,11 @@ function App() {
   }, [tab]);
 
   const showLogs = async (id, type='service') => {
-    setModal({type:'logs', title:`Logs: ${id}`}); setLogs(''); setLogsLoading(true);
+    setModal({type:'logs', title:t('Logs: {id}',{id})}); setLogs(''); setLogsLoading(true);
     const endpoint = type === 'container' ? 'container-logs' : 'service-logs';
     const param = type === 'container' ? 'container_id' : 'service_id';
     const r = await api(`${endpoint}?${param}=${encodeURIComponent(id)}&tail=200`);
-    setLogs(r.logs || r.error || 'Sin logs'); setLogsLoading(false);
+    setLogs(r.logs || r.error || t('Sin logs')); setLogsLoading(false);
   };
 
   const scaleService = (svc) => {
@@ -2448,34 +2740,34 @@ function App() {
 
   const doScale = async (svcName, replicas) => {
     const r = await api('service-scale', {method:'POST', body:{service_id:svcName,replicas}});
-    if (r.success) { toast(`${svcName} escalado a ${replicas}`,'success'); setModal(null); loadTab('services'); }
+    if (r.success) { toast(t('{svc} escalado a {n}',{svc:svcName,n:replicas}),'success'); setModal(null); loadTab('services'); }
     else toast(r.error||'Error','error');
   };
 
   const doRestart = async (svcName) => {
-    if (!confirm(`Reiniciar servicio ${svcName}?`)) return;
+    if (!confirm(t('Reiniciar servicio {svc}?',{svc:svcName}))) return;
     const r = await api('service-restart', {method:'POST', body:{service_id:svcName}});
-    if (r.success) { toast(`${svcName} reiniciado`,'success'); loadTab('services'); }
+    if (r.success) { toast(t('{svc} reiniciado',{svc:svcName}),'success'); loadTab('services'); }
     else toast(r.error||'Error','error');
   };
 
   const showTasks = async (svc) => {
-    setModal({type:'tasks', title:`Tasks: ${svc.Name}`, tasks:null});
+    setModal({type:'tasks', title:t('Tasks: {name}',{name:svc.Name}), tasks:null});
     const r = await api(`tasks?service_id=${encodeURIComponent(svc.Name||svc.ID)}`);
     setModal(m => ({...m, tasks: r.tasks||[]}));
   };
 
   const doContainerAction = async (id, action) => {
-    if (!confirm(`${action} container ${id}?`)) return;
+    if (!confirm(t('{action} container {id}?',{action,id}))) return;
     const r = await api('container-action', {method:'POST', body:{container_id:id,action}});
-    if (r.success) { toast(`Container ${action}ed`,'success'); loadTab('containers'); }
+    if (r.success) { toast(t('Container {action}ed',{action}),'success'); loadTab('containers'); }
     else toast(r.error||'Error','error');
   };
 
   const doStackRemove = async (name) => {
-    if (!confirm(`ELIMINAR stack ${name}? Esto eliminara todos sus servicios.`)) return;
+    if (!confirm(t('ELIMINAR stack {name}? Esto eliminara todos sus servicios.',{name}))) return;
     const r = await api('stack-remove', {method:'POST', body:{stack_name:name}});
-    if (r.success) { toast(`Stack ${name} eliminado`,'success'); loadTab('stacks'); }
+    if (r.success) { toast(t('Stack {name} eliminado',{name}),'success'); loadTab('stacks'); }
     else toast(r.error||'Error','error');
   };
 
@@ -2506,18 +2798,18 @@ function App() {
   }, []);
 
   const allTabs = [
-    {id:'dashboard', label:'Dashboard', icon:'#'},
-    {id:'nodes', label:'Nodos', icon:'N', swarmOnly:true},
-    {id:'services', label:'Servicios', icon:'S', swarmOnly:true},
-    {id:'stacks', label:'Stacks', icon:'K', swarmOnly:true},
-    {id:'containers', label:'Contenedores', icon:'C'},
-    {id:'networks', label:'Redes', icon:'R'},
-    {id:'volumes', label:'Volumenes', icon:'V'},
-    {id:'images', label:'Imagenes', icon:'I'},
-    {id:'loadbalance', label:'Balance', icon:'B', swarmOnly:true},
-    {id:'trends', label:'Tendencias', icon:'T', swarmOnly:true},
-    {id:'audit', label:'Auditoria', icon:'A', swarmOnly:true},
-    {id:'settings', label:'Ajustes', icon:'*'},
+    {id:'dashboard', label:t('Dashboard'), icon:'#'},
+    {id:'nodes', label:t('Nodos'), icon:'N', swarmOnly:true},
+    {id:'services', label:t('Servicios'), icon:'S', swarmOnly:true},
+    {id:'stacks', label:t('Stacks'), icon:'K', swarmOnly:true},
+    {id:'containers', label:t('Contenedores'), icon:'C'},
+    {id:'networks', label:t('Redes'), icon:'R'},
+    {id:'volumes', label:t('Volumenes'), icon:'V'},
+    {id:'images', label:t('Imagenes'), icon:'I'},
+    {id:'loadbalance', label:t('Balance'), icon:'B', swarmOnly:true},
+    {id:'trends', label:t('Tendencias'), icon:'T', swarmOnly:true},
+    {id:'audit', label:t('Auditoria'), icon:'A', swarmOnly:true},
+    {id:'settings', label:t('Ajustes'), icon:'*'},
   ];
   // While engineMode is null (initial render before first probe completes)
   // we *show* swarm tabs — most users have swarm; standalone is the minority
@@ -2544,7 +2836,7 @@ function App() {
         <span style={{width:20,textAlign:'center',fontWeight:700,fontSize:14}}>{t.icon}</span> {t.label}
       </div>)}
       <div style={{position:'absolute',bottom:16,left:0,right:0,textAlign:'center',fontSize:11,color:'var(--muted)'}}>
-        <a href="/" style={{color:'var(--accent)',textDecoration:'none'}}>Volver a PegaProx</a>
+        <a href="/" style={{color:'var(--accent)',textDecoration:'none'}}>{t("Volver a PegaProx")}</a>
       </div>
     </div>
 
@@ -2556,6 +2848,7 @@ function App() {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {loading && <span className="spinner"/>}
+          <button className="btn btn-sm" title="Language / Idioma" onClick={()=>setLang(LANG==='en'?'es':'en')}>{LANG==='en'?'EN':'ES'}</button>
           <button className="btn" onClick={()=>{loadTab(tab);setCountdown(REFRESH_INTERVAL);}}>Refresh</button>
         </div>
         {tab==='dashboard' && <div className="countdown-bar" style={{width:`${(countdown/REFRESH_INTERVAL)*100}%`}}/>}
@@ -2581,20 +2874,20 @@ function App() {
         : <div className="log-viewer">{logs}</div>}
     </Modal>}
 
-    {modal?.type==='scale' && <Modal title={`Escalar: ${modal.svc.Name}`} onClose={()=>setModal(null)}>
+    {modal?.type==='scale' && <Modal title={t('Escalar: {name}',{name:modal.svc.Name})} onClose={()=>setModal(null)}>
       <div style={{marginBottom:12}}>
-        <label style={{fontSize:12,color:'var(--muted)'}}>Replicas actuales: {modal.current}</label>
+        <label style={{fontSize:12,color:'var(--muted)'}}>{t("Replicas actuales: {n}",{n:modal.current})}</label>
         <input type="number" id="scaleInput" defaultValue={modal.current} min={0} max={100} style={{marginTop:4}} />
       </div>
       <button className="btn btn-primary" onClick={()=>doScale(modal.svc.Name||modal.svc.ID, parseInt(document.getElementById('scaleInput').value))}>
-        Aplicar Scale
+        {t("Aplicar Scale")}
       </button>
     </Modal>}
 
     {modal?.type==='tasks' && <Modal title={modal.title} onClose={()=>setModal(null)}>
       {!modal.tasks ? <div style={{textAlign:'center',padding:20}}><span className="spinner"/></div>
         : <table>
-          <thead><tr><th>ID</th><th>Nombre</th><th>Nodo</th><th>Estado</th><th>Error</th></tr></thead>
+          <thead><tr><th>ID</th><th>{tr("Nombre")}</th><th>{tr("Nodo")}</th><th>{tr("Estado")}</th><th>Error</th></tr></thead>
           <tbody>{modal.tasks.map((t,i) => <tr key={i}>
             <td style={{fontFamily:'monospace',fontSize:12}}>{(t.ID||'').substring(0,12)}</td>
             <td>{t.Name}</td>
