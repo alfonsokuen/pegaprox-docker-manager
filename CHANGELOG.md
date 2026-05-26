@@ -4,6 +4,45 @@ All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
 
+## [2.2.0] — 2026-05-26
+
+Bilingual UI (English + Spanish) and a privacy fix, layered on top of the
+multi-cluster release. A customer install (UltraCORP) reported the UI rendering
+in Spanish regardless of their PegaProx language, plus IDK's internal infra
+showing up as ghost text in the empty Settings fields.
+
+### Added — i18n (English + Spanish)
+
+- New translation layer in `swarm.html`: `detectLang()`, a Spanish→English
+  `I18N` dictionary (259 entries, incl. the multi-cluster Settings strings), and
+  a `t(key, params)` helper with `{name}`-style interpolation. Spanish source
+  strings are the dictionary KEYS, so any unmapped string degrades gracefully to
+  readable Spanish instead of a missing-key placeholder.
+- **Locale auto-detection** (PegaProx exposes no plugin-locale API): `?lang=`
+  query param → `docker_swarm_lang` override → PegaProx core locale read from the
+  parent/top window `localStorage` (same-origin; `locale`/`lang`/`language`/
+  `i18nextLng`/`pegaprox_locale`/…) → parent `<html lang>` → `navigator.language`
+  → default `en`.
+- **Explicit ES/EN toggle** in the top bar that always wins and persists.
+- Every user-visible string across all tabs + the multi-cluster cluster
+  selector and cluster CRUD, plus toasts/confirms/modals/headers/placeholders,
+  now renders through `t()`.
+
+### Fixed — internal-config leak (privacy)
+
+- The Settings host form shipped placeholders hardcoded with IDK's real
+  production values (`IASERVER01`, `190.160.10.129`, `alfonso`) and the cluster
+  example name `IDK Produccion`. On any customer install these rendered as ghost
+  text. Replaced with generic, translated examples (`e.g. swarm-manager-1` /
+  `e.g. 192.168.1.10` / `e.g. ssh-user` / `e.g. Production`). `config.example.json`
+  was already clean; this was frontend-only.
+
+### Notes
+
+- No backend/API/plugin-id change relative to 2.1.0; upgrades in place.
+- Verified: esbuild JSX parse, no duplicate dict keys, dependency-free module
+  evaluation in both locales (no ReferenceError), leak scan clean.
+
 ## [2.1.0] — 2026-05-22
 
 Multi-cluster support. The plugin can now manage **several Docker clusters** from

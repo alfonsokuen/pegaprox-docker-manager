@@ -71,11 +71,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-// ============== i18n (v2.1.0) ==============
-// UI authored in Spanish; we keep the Spanish strings as the translation KEYS
-// (missing entry => readable Spanish fallback) and map them to English.
-// PegaProx exposes no documented locale API to plugins, so detect defensively
-// from several sources and expose an explicit ES/EN toggle that always wins.
+// ============== i18n (v2.2.0) ==============
+// UI authored in Spanish; Spanish strings are the translation KEYS (missing
+// entry => readable Spanish fallback) mapped to English. PegaProx exposes no
+// documented locale API to plugins, so detect defensively + offer a toggle.
 function detectLang() {
   const norm = v => { if(!v) return null; v=String(v).replace(/^["']|["']$/g,'').trim().toLowerCase(); return v.startsWith('es')?'es':v.startsWith('en')?'en':null; };
   try { const n = norm(new URLSearchParams(location.search).get('lang')); if(n) return n; } catch(e){}
@@ -358,6 +357,20 @@ const I18N = {
   "Escalar: {name}": { en: "Scale: {name}" },
   "Replicas actuales: {n}": { en: "Current replicas: {n}" },
   "Aplicar Scale": { en: "Apply Scale" },
+  // === Settings / multi-cluster (v2.2.0) ===
+  "Cada cluster necesita un id": { en: "Each cluster needs an id" },
+  "Los ids de cluster deben ser unicos": { en: "Cluster ids must be unique" },
+  "Ingresa password o key_file para probar": { en: "Enter password or key_file to test" },
+  "Error": { en: "Error" },
+  "Configuracion Docker Manager": { en: "Docker Manager Configuration" },
+  "Clusters": { en: "Clusters" },
+  "ID (estable, sin espacios)": { en: "ID (stable, no spaces)" },
+  "ej. Produccion": { en: "e.g. Production" },
+  "Eliminar cluster": { en: "Delete cluster" },
+  "key_file (ruta SSH key)": { en: "key_file (SSH key path)" },
+  "Password (si no usa key)": { en: "Password (if not using a key)" },
+  "Eliminar host": { en: "Delete host" },
+  "+ Agregar Cluster": { en: "+ Add Cluster" },
 };
 function t(s, params) {
   let out = (LANG === 'en' && I18N[s] && I18N[s].en != null) ? I18N[s].en : s;
@@ -1892,11 +1905,11 @@ function Settings({ onSave, toast }) {
   const save = async () => {
     // Validate cluster ids: non-empty + unique.
     const ids = clusters.map(c => (c.id||'').trim());
-    if (ids.some(id => !id)) { toast('Cada cluster necesita un id','error'); return; }
-    if (new Set(ids).size !== ids.length) { toast('Los ids de cluster deben ser unicos','error'); return; }
+    if (ids.some(id => !id)) { toast(t('Cada cluster necesita un id'),'error'); return; }
+    if (new Set(ids).size !== ids.length) { toast(t('Los ids de cluster deben ser unicos'),'error'); return; }
     const r = await api('config/save', {method:'POST', body:{clusters, poll_interval:poll}});
-    if (r.success) { toast('Configuracion guardada','success'); onSave && onSave(); }
-    else toast(r.error||'Error','error');
+    if (r.success) { toast(t('Configuracion guardada'),'success'); onSave && onSave(); }
+    else toast(r.error||t('Error'),'error');
   };
 
   const testConn = async (ci,hi) => {
@@ -1904,7 +1917,7 @@ function Settings({ onSave, toast }) {
     setTesting(key); setTestResult(null);
     const h = clusters[ci].hosts[hi];
     const pwd = h.password === '***' ? '' : h.password;
-    if (!pwd && !h.key_file) { toast('Ingresa password o key_file para probar','error'); setTesting(null); return; }
+    if (!pwd && !h.key_file) { toast(t('Ingresa password o key_file para probar'),'error'); setTesting(null); return; }
     const r = await api('test-connection', {method:'POST', body:{host:h.host,user:h.user,key_file:h.key_file||'',password:pwd}});
     setTestResult({key, ...r}); setTesting(null);
   };
@@ -1912,48 +1925,48 @@ function Settings({ onSave, toast }) {
   if (!config) return <div style={{textAlign:'center',padding:40}}><div className="spinner"/></div>;
 
   return <div className="card">
-    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>Configuracion Docker Manager</h3>
+    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>{t("Configuracion Docker Manager")}</h3>
 
     <div style={{marginBottom:16}}>
       <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>{t("Intervalo de polling (segundos)")}</label>
       <input type="number" value={poll} onChange={e=>setPoll(parseInt(e.target.value)||30)} min={10} max={300} style={{maxWidth:120}} />
     </div>
 
-    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>Clusters</h4>
+    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>{t("Clusters")}</h4>
     {clusters.map((c,ci) => <div key={ci} style={{border:'1px solid var(--border)',borderRadius:10,padding:14,marginBottom:14}}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginBottom:10,alignItems:'end'}}>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>ID (estable, sin espacios)</label><input value={c.id} onChange={e=>updateCluster(ci,'id',e.target.value)} placeholder="prod"/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>Nombre</label><input value={c.name} onChange={e=>updateCluster(ci,'name',e.target.value)} placeholder="IDK Produccion"/></div>
-        <button className="btn btn-sm btn-danger" onClick={()=>removeCluster(ci)}>Eliminar cluster</button>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("ID (estable, sin espacios)")}</label><input value={c.id} onChange={e=>updateCluster(ci,'id',e.target.value)} placeholder="prod"/></div>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Nombre")}</label><input value={c.name} onChange={e=>updateCluster(ci,'name',e.target.value)} placeholder={t("ej. Produccion")}/></div>
+        <button className="btn btn-sm btn-danger" onClick={()=>removeCluster(ci)}>{t("Eliminar cluster")}</button>
       </div>
 
       {c.hosts.map((h,hi) => <div key={hi} style={{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:8,background:'rgba(255,255,255,.02)'}}>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
-          <div><label style={{fontSize:11,color:'var(--muted)'}}>Nombre</label><input value={h.name} onChange={e=>updateHost(ci,hi,'name',e.target.value)} placeholder="IASERVER01"/></div>
-          <div><label style={{fontSize:11,color:'var(--muted)'}}>Host/IP</label><input value={h.host} onChange={e=>updateHost(ci,hi,'host',e.target.value)} placeholder="190.160.10.129"/></div>
-          <div><label style={{fontSize:11,color:'var(--muted)'}}>Usuario</label><input value={h.user} onChange={e=>updateHost(ci,hi,'user',e.target.value)} placeholder="alfonso"/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Nombre")}</label><input value={h.name} onChange={e=>updateHost(ci,hi,'name',e.target.value)} placeholder={t("ej. swarm-manager-1")}/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Host/IP")}</label><input value={h.host} onChange={e=>updateHost(ci,hi,'host',e.target.value)} placeholder={t("ej. 192.168.1.10")}/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Usuario")}</label><input value={h.user} onChange={e=>updateHost(ci,hi,'user',e.target.value)} placeholder={t("ej. usuario-ssh")}/></div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
-          <div><label style={{fontSize:11,color:'var(--muted)'}}>key_file (ruta SSH key)</label><input value={h.key_file||''} onChange={e=>updateHost(ci,hi,'key_file',e.target.value)} placeholder="/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"/></div>
-          <div><label style={{fontSize:11,color:'var(--muted)'}}>Password (si no usa key)</label><input type="password" value={h.password||''} onChange={e=>updateHost(ci,hi,'password',e.target.value)}/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("key_file (ruta SSH key)")}</label><input value={h.key_file||''} onChange={e=>updateHost(ci,hi,'key_file',e.target.value)} placeholder="/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Password (si no usa key)")}</label><input type="password" value={h.password||''} onChange={e=>updateHost(ci,hi,'password',e.target.value)}/></div>
         </div>
         <div style={{display:'flex',gap:8}}>
           <button className="btn btn-sm" onClick={()=>testConn(ci,hi)} disabled={testing===`${ci}:${hi}`}>
-            {testing===`${ci}:${hi}` ? <><span className="spinner" style={{width:14,height:14}}/> Probando...</> : 'Probar conexion'}
+            {testing===`${ci}:${hi}` ? <><span className="spinner" style={{width:14,height:14}}/> {t("Probando...")}</> : t('Probar conexion')}
           </button>
-          <button className="btn btn-sm btn-danger" onClick={()=>removeHost(ci,hi)}>Eliminar host</button>
+          <button className="btn btn-sm btn-danger" onClick={()=>removeHost(ci,hi)}>{t("Eliminar host")}</button>
           {testResult && testResult.key===`${ci}:${hi}` && <span style={{fontSize:12,color:testResult.success?'var(--green)':'var(--red)',alignSelf:'center'}}>
-            {testResult.success ? `OK - Swarm activo, ${testResult.nodes} nodos, ${testResult.managers} managers` : testResult.error}
+            {testResult.success ? t("OK - Swarm activo, {nodes} nodos, {managers} managers",{nodes:testResult.nodes,managers:testResult.managers}) : testResult.error}
           </span>}
         </div>
       </div>)}
 
-      <button className="btn btn-sm" onClick={()=>addHost(ci)}>+ Agregar Host</button>
+      <button className="btn btn-sm" onClick={()=>addHost(ci)}>{t("+ Agregar Host")}</button>
     </div>)}
 
     <div style={{display:'flex',gap:8,marginTop:12}}>
-      <button className="btn" onClick={addCluster}>+ Agregar Cluster</button>
-      <button className="btn btn-primary" onClick={save}>Guardar Configuracion</button>
+      <button className="btn" onClick={addCluster}>{t("+ Agregar Cluster")}</button>
+      <button className="btn btn-primary" onClick={save}>{t("Guardar Configuracion")}</button>
     </div>
 
     <DiskAutoPruneSettings toast={toast} />

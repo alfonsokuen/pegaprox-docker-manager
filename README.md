@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-2.2.0-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/pegaprox-0.9.9.3+-orange" alt="PegaProx"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License"/>
   <img src="https://img.shields.io/badge/python-3.10+-yellow" alt="Python"/>
