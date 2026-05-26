@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================================
-# PegaProx Docker Swarm Manager Plugin — One-Line Installer (v1.16.0+)
+# PegaProx Docker Manager Plugin — One-Line Installer (v1.16.0+)
 # ============================================================================
 #
 # Install:
-#   curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-swarm/main/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-manager/main/install.sh | sudo bash
 #
 # What it does:
 #   1. Downloads the plugin to /opt/PegaProx/plugins/docker_swarm/
@@ -37,15 +37,15 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-REPO_URL="https://github.com/alfonsokuen/pegaprox-docker-swarm"
+REPO_URL="https://github.com/alfonsokuen/pegaprox-docker-manager"
 PEGAPROX_DIR="/opt/PegaProx"
 PLUGIN_DIR="$PEGAPROX_DIR/plugins/docker_swarm"
 MIN_PEGAPROX="0.9.9.3"
 
 echo ""
 echo -e "${CYAN}+==============================================================+${NC}"
-echo -e "${CYAN}|   ${BOLD}PegaProx Docker Swarm Manager Plugin - Installer${NC}${CYAN}          |${NC}"
-echo -e "${CYAN}|   Monitor & manage Docker Swarm from PegaProx              |${NC}"
+echo -e "${CYAN}|   ${BOLD}PegaProx Docker Manager Plugin - Installer${NC}${CYAN}                |${NC}"
+echo -e "${CYAN}|   Monitor & manage Docker hosts and Swarm from PegaProx    |${NC}"
 echo -e "${CYAN}+==============================================================+${NC}"
 echo ""
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Docker Swarm Manager — PegaProx</title>
+<title>Docker Manager — PegaProx</title>
 <script src="/static/js/react.production.min.js"></script>
 <script src="/static/js/react-dom.production.min.js"></script>
 <script src="/static/js/babel.min.js"></script>
@@ -369,6 +369,16 @@ const tr = t;
 
 const API = '/api/plugins/docker_swarm/api';
 
+// v2.1.0 multi-cluster: the active cluster id is a module-level mutable so the
+// global `api()` helper and the few raw fetches all pick it up without having
+// to thread a prop through every component. The selector in <App/> sets it.
+let _CLUSTER = '';
+function clURL(path) {
+  if (!_CLUSTER) return `${API}/${path}`;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${API}/${path}${sep}cluster=${encodeURIComponent(_CLUSTER)}`;
+}
+
 // v2.0.0: tabs that depend on Docker Swarm primitives (`docker node|service|
 // stack|...`). Hidden when engine reports standalone. Sidebar nav, mode-flip
 // auto-bounce, and the legend tooltip all share this single source of truth.
@@ -379,7 +389,7 @@ const SWARM_ONLY_TABS = new Set([
 async function api(path, opts = {}) {
   let res;
   try {
-    res = await fetch(`${API}/${path}`, {
+    res = await fetch(clURL(path), {
       ...opts,
       headers: { 'Content-Type': 'application/json', ...opts.headers },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -503,7 +513,7 @@ function DiskPruneBar({ onRefresh }) {
     if (t.confirm && !window.confirm(tr("⚠️  {label}\n\nEsta acción afectará TODOS los nodos. {detail}\n\n¿Continuar?", {label: t.label, detail: t.id==='volumes'||t.id==='all'?tr('Puede borrar datos de volúmenes no montados.'):tr('Es reversible (solo recupera espacio).')}))) return;
     setBusy(t.id); setResult(null);
     try {
-      const r = await fetch(`${API}/disk/prune`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target: t.id, all_nodes: true }) });
+      const r = await fetch(clURL('disk/prune'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ target: t.id, all_nodes: true }) });
       const j = await r.json();
       setResult(j);
       if (onRefresh) onRefresh();
@@ -542,7 +552,7 @@ function DiskAutoPruneSettings({ toast }) {
   const [saving, setSaving] = React.useState(false);
   const [available, setAvailable] = React.useState([]);
   React.useEffect(() => {
-    fetch(`${API}/disk/settings`).then(r=>r.json()).then(j => {
+    fetch(clURL('disk/settings')).then(r=>r.json()).then(j => {
       setCfg(j.disk_auto_prune || {});
       setAvailable((j.available_targets||[]).filter(t => t!=='volumes' && t!=='all'));
     });
@@ -551,7 +561,7 @@ function DiskAutoPruneSettings({ toast }) {
   async function save() {
     setSaving(true);
     try {
-      const r = await fetch(`${API}/disk/settings`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
+      const r = await fetch(clURL('disk/settings'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg) });
       const j = await r.json();
       if (j.error) toast && toast(t('Error: {msg}',{msg:j.error}), 'error');
       else { setCfg(j.disk_auto_prune); toast && toast(t('Auto-prune guardado'), 'success'); }
@@ -562,7 +572,7 @@ function DiskAutoPruneSettings({ toast }) {
     if (!window.confirm(t('¿Ejecutar auto-prune ahora en los nodos sobre el umbral?'))) return;
     setSaving(true);
     try {
-      const r = await fetch(`${API}/disk/auto-prune/run`, { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+      const r = await fetch(clURL('disk/auto-prune/run'), { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
       const j = await r.json();
       if (j.error) toast && toast(t('Error: {msg}',{msg:j.error}), 'error');
       else { setCfg(j.disk_auto_prune); toast && toast(t('Auto-prune ejecutado'), 'success'); }
@@ -1859,64 +1869,91 @@ function Images({ data, toast }) {
 // Settings
 function Settings({ onSave, toast }) {
   const [config, setConfig] = useState(null);
-  const [hosts, setHosts] = useState([]);
+  // v2.1.0: edit the full multi-cluster shape. Each cluster = {id,name,hosts:[...]}.
+  const [clusters, setClusters] = useState([]);
   const [poll, setPoll] = useState(30);
-  const [testing, setTesting] = useState(null);
-  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(null);     // `${ci}:${hi}` while testing
+  const [testResult, setTestResult] = useState(null); // {key, ...result}
 
-  useEffect(() => { api('config').then(d => { setConfig(d); setHosts(d.swarm_hosts||[]); setPoll(d.poll_interval||30); }); }, []);
+  useEffect(() => { api('config').then(d => {
+    setConfig(d);
+    setClusters(d.clusters || (d.swarm_hosts ? [{id:'default',name:'Swarm',hosts:d.swarm_hosts}] : []));
+    setPoll(d.poll_interval||30);
+  }); }, []);
 
-  const addHost = () => setHosts([...hosts, {name:'',host:'',user:'',password:''}]);
-  const removeHost = i => setHosts(hosts.filter((_,j)=>j!==i));
-  const updateHost = (i,field,val) => { const h=[...hosts]; h[i]={...h[i],[field]:val}; setHosts(h); };
+  const updateCluster = (ci,field,val) => setClusters(cl => cl.map((c,j)=> j===ci ? {...c,[field]:val} : c));
+  const removeCluster = ci => setClusters(cl => cl.filter((_,j)=>j!==ci));
+  const addCluster = () => setClusters(cl => [...cl, {id:'',name:'',hosts:[{name:'',host:'',user:'',key_file:'',password:''}]}]);
+
+  const addHost = ci => setClusters(cl => cl.map((c,j)=> j===ci ? {...c,hosts:[...c.hosts,{name:'',host:'',user:'',key_file:'',password:''}]} : c));
+  const removeHost = (ci,hi) => setClusters(cl => cl.map((c,j)=> j===ci ? {...c,hosts:c.hosts.filter((_,k)=>k!==hi)} : c));
+  const updateHost = (ci,hi,field,val) => setClusters(cl => cl.map((c,j)=> j===ci ? {...c,hosts:c.hosts.map((h,k)=> k===hi ? {...h,[field]:val} : h)} : c));
 
   const save = async () => {
-    const r = await api('config/save', {method:'POST', body:{swarm_hosts:hosts, poll_interval:poll}});
-    if (r.success) toast(t('Configuracion guardada'),'success');
+    // Validate cluster ids: non-empty + unique.
+    const ids = clusters.map(c => (c.id||'').trim());
+    if (ids.some(id => !id)) { toast('Cada cluster necesita un id','error'); return; }
+    if (new Set(ids).size !== ids.length) { toast('Los ids de cluster deben ser unicos','error'); return; }
+    const r = await api('config/save', {method:'POST', body:{clusters, poll_interval:poll}});
+    if (r.success) { toast('Configuracion guardada','success'); onSave && onSave(); }
     else toast(r.error||'Error','error');
   };
 
-  const testConn = async (i) => {
-    setTesting(i); setTestResult(null);
-    const h = hosts[i];
+  const testConn = async (ci,hi) => {
+    const key = `${ci}:${hi}`;
+    setTesting(key); setTestResult(null);
+    const h = clusters[ci].hosts[hi];
     const pwd = h.password === '***' ? '' : h.password;
-    if (!pwd) { toast(t('Ingresa la password para probar'),'error'); setTesting(null); return; }
-    const r = await api('test-connection', {method:'POST', body:{host:h.host,user:h.user,password:pwd}});
-    setTestResult({index:i, ...r}); setTesting(null);
+    if (!pwd && !h.key_file) { toast('Ingresa password o key_file para probar','error'); setTesting(null); return; }
+    const r = await api('test-connection', {method:'POST', body:{host:h.host,user:h.user,key_file:h.key_file||'',password:pwd}});
+    setTestResult({key, ...r}); setTesting(null);
   };
 
   if (!config) return <div style={{textAlign:'center',padding:40}}><div className="spinner"/></div>;
 
   return <div className="card">
-    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>{t("Configuracion Docker Swarm")}</h3>
+    <h3 style={{fontSize:15,fontWeight:600,marginBottom:16}}>Configuracion Docker Manager</h3>
 
     <div style={{marginBottom:16}}>
       <label style={{fontSize:12,color:'var(--muted)',marginBottom:4,display:'block'}}>{t("Intervalo de polling (segundos)")}</label>
       <input type="number" value={poll} onChange={e=>setPoll(parseInt(e.target.value)||30)} min={10} max={300} style={{maxWidth:120}} />
     </div>
 
-    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>{t("Hosts Swarm (SSH)")}</h4>
-    {hosts.map((h,i) => <div key={i} style={{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:8}}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:8}}>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Nombre")}</label><input value={h.name} onChange={e=>updateHost(i,'name',e.target.value)} placeholder={t("ej. swarm-manager-1")}/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Host/IP")}</label><input value={h.host} onChange={e=>updateHost(i,'host',e.target.value)} placeholder={t("ej. 192.168.1.10")}/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>{t("Usuario")}</label><input value={h.user} onChange={e=>updateHost(i,'user',e.target.value)} placeholder={t("ej. usuario-ssh")}/></div>
-        <div><label style={{fontSize:11,color:'var(--muted)'}}>Password</label><input type="password" value={h.password} onChange={e=>updateHost(i,'password',e.target.value)}/></div>
+    <h4 style={{fontSize:13,color:'var(--muted)',marginBottom:8}}>Clusters</h4>
+    {clusters.map((c,ci) => <div key={ci} style={{border:'1px solid var(--border)',borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,marginBottom:10,alignItems:'end'}}>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>ID (estable, sin espacios)</label><input value={c.id} onChange={e=>updateCluster(ci,'id',e.target.value)} placeholder="prod"/></div>
+        <div><label style={{fontSize:11,color:'var(--muted)'}}>Nombre</label><input value={c.name} onChange={e=>updateCluster(ci,'name',e.target.value)} placeholder="IDK Produccion"/></div>
+        <button className="btn btn-sm btn-danger" onClick={()=>removeCluster(ci)}>Eliminar cluster</button>
       </div>
-      <div style={{display:'flex',gap:8}}>
-        <button className="btn btn-sm" onClick={()=>testConn(i)} disabled={testing===i}>
-          {testing===i ? <><span className="spinner" style={{width:14,height:14}}/> {t("Probando...")}</> : t('Probar conexion')}
-        </button>
-        <button className="btn btn-sm btn-danger" onClick={()=>removeHost(i)}>{t("Eliminar")}</button>
-        {testResult && testResult.index===i && <span style={{fontSize:12,color:testResult.success?'var(--green)':'var(--red)',alignSelf:'center'}}>
-          {testResult.success ? t('OK - Swarm activo, {nodes} nodos, {managers} managers',{nodes:testResult.nodes,managers:testResult.managers}) : testResult.error}
-        </span>}
-      </div>
+
+      {c.hosts.map((h,hi) => <div key={hi} style={{border:'1px solid var(--border)',borderRadius:8,padding:12,marginBottom:8,background:'rgba(255,255,255,.02)'}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:8}}>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>Nombre</label><input value={h.name} onChange={e=>updateHost(ci,hi,'name',e.target.value)} placeholder="IASERVER01"/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>Host/IP</label><input value={h.host} onChange={e=>updateHost(ci,hi,'host',e.target.value)} placeholder="190.160.10.129"/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>Usuario</label><input value={h.user} onChange={e=>updateHost(ci,hi,'user',e.target.value)} placeholder="alfonso"/></div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>key_file (ruta SSH key)</label><input value={h.key_file||''} onChange={e=>updateHost(ci,hi,'key_file',e.target.value)} placeholder="/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519"/></div>
+          <div><label style={{fontSize:11,color:'var(--muted)'}}>Password (si no usa key)</label><input type="password" value={h.password||''} onChange={e=>updateHost(ci,hi,'password',e.target.value)}/></div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn btn-sm" onClick={()=>testConn(ci,hi)} disabled={testing===`${ci}:${hi}`}>
+            {testing===`${ci}:${hi}` ? <><span className="spinner" style={{width:14,height:14}}/> Probando...</> : 'Probar conexion'}
+          </button>
+          <button className="btn btn-sm btn-danger" onClick={()=>removeHost(ci,hi)}>Eliminar host</button>
+          {testResult && testResult.key===`${ci}:${hi}` && <span style={{fontSize:12,color:testResult.success?'var(--green)':'var(--red)',alignSelf:'center'}}>
+            {testResult.success ? `OK - Swarm activo, ${testResult.nodes} nodos, ${testResult.managers} managers` : testResult.error}
+          </span>}
+        </div>
+      </div>)}
+
+      <button className="btn btn-sm" onClick={()=>addHost(ci)}>+ Agregar Host</button>
     </div>)}
 
     <div style={{display:'flex',gap:8,marginTop:12}}>
-      <button className="btn" onClick={addHost}>{t("+ Agregar Host")}</button>
-      <button className="btn btn-primary" onClick={save}>{t("Guardar Configuracion")}</button>
+      <button className="btn" onClick={addCluster}>+ Agregar Cluster</button>
+      <button className="btn btn-primary" onClick={save}>Guardar Configuracion</button>
     </div>
 
     <DiskAutoPruneSettings toast={toast} />
@@ -2658,6 +2695,12 @@ function Audit({ data, onRefresh, toast }) {
 
 function App() {
   const [tab, setTab] = useState('dashboard');
+  // v2.1.0 multi-cluster: list of {id,name,hosts,mode} + the currently selected id.
+  const [clusters, setClusters] = useState([]);
+  const [cluster, setClusterState] = useState('');
+  // Set the module-global synchronously BEFORE the re-render so any api() call
+  // triggered by the cluster change already carries the new cluster param.
+  const setCluster = (cid) => { _CLUSTER = cid; setClusterState(cid); };
   // v2.0.0: engine mode probe — drives tab visibility + Dashboard layout.
   // null until first fetch resolves; tabs render with placeholder labels until
   // mode is known (~50ms on warm cache).
@@ -2706,7 +2749,20 @@ function App() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadTab(tab); }, [tab]);
+  // Load the cluster list once on mount; pick the server's default as active.
+  useEffect(() => {
+    let cancelled = false;
+    api('clusters').then(r => {
+      if (cancelled || !r || !Array.isArray(r.clusters)) return;
+      setClusters(r.clusters);
+      const initial = r.default || (r.clusters[0] && r.clusters[0].id) || '';
+      if (initial) setCluster(initial);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Reload the active tab whenever the tab OR the selected cluster changes.
+  useEffect(() => { loadTab(tab); }, [tab, cluster]);
 
   // Auto-refresh dashboard with visible countdown
   useEffect(() => {
@@ -2792,10 +2848,10 @@ function App() {
     probe();
     const id = setInterval(probe, 60000);
     return () => { cancelled = true; clearInterval(id); };
-  // Intentionally exclude `tab` from deps — the bounce is best-effort, no
-  // need to re-arm the interval just because the user clicked around.
+  // Re-probe when the cluster changes (prod and QA can be in different modes).
+  // `tab` is intentionally excluded — the bounce is best-effort.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cluster]);
 
   const allTabs = [
     {id:'dashboard', label:t('Dashboard'), icon:'#'},
@@ -2847,6 +2903,13 @@ function App() {
           {tab==='dashboard' && <span style={{fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',gap:4}}><span className="live-dot" style={{width:6,height:6}}/> {countdown}s</span>}
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {clusters.length > 1 && <select
+            value={cluster}
+            onChange={e=>setCluster(e.target.value)}
+            title="Cluster Docker"
+            style={{background:'var(--card)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:6,padding:'6px 10px',fontSize:13,cursor:'pointer'}}>
+            {clusters.map(c => <option key={c.id} value={c.id}>{c.name} ({c.hosts})</option>)}
+          </select>}
           {loading && <span className="spinner"/>}
           <button className="btn btn-sm" title="Language / Idioma" onClick={()=>setLang(LANG==='en'?'es':'en')}>{LANG==='en'?'EN':'ES'}</button>
           <button className="btn" onClick={()=>{loadTab(tab);setCountdown(REFRESH_INTERVAL);}}>Refresh</button>

@@ -71,7 +71,7 @@ Born from [Feature Request #152](https://github.com/PegaProx/project-pegaprox/is
 ### One-Line Install (Recommended)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-swarm/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/alfonsokuen/pegaprox-docker-manager/main/install.sh | sudo bash
 ```
 
 The installer will:
@@ -87,12 +87,12 @@ The installer will:
 
 ```bash
 cd /opt/PegaProx/plugins/
-git clone https://github.com/alfonsokuen/pegaprox-docker-swarm.git docker_swarm
+git clone https://github.com/alfonsokuen/pegaprox-docker-manager.git docker_swarm
 cp docker_swarm/config.example.json docker_swarm/config.json
 # Edit config.json with your Swarm SSH credentials
 chown -R pegaprox:pegaprox docker_swarm/
 chmod 600 docker_swarm/config.json
-# Enable: Settings > Plugins > Rescan > Enable "Docker Swarm Manager"
+# Enable: Settings > Plugins > Rescan > Enable "Docker Manager"
 # As of v1.16.0 the plugin uses PegaProx 0.9.9.3+ native plugin frontend hook
 # (manifest `has_frontend: true`); no dashboard.js patching required.
 sudo systemctl restart pegaprox
@@ -106,23 +106,43 @@ sudo bash /opt/PegaProx/plugins/docker_swarm/uninstall.sh
 
 ## Configuration
 
-Edit `config.json` or use the **Settings** tab in the plugin UI:
+Edit `config.json` or use the **Settings** tab in the plugin UI.
+
+**Multi-cluster (v2.1.0+)** — manage several clusters and switch between them from
+the header selector:
 
 ```json
 {
-    "swarm_hosts": [
+    "clusters": [
         {
-            "name": "Manager-1",
-            "host": "192.168.1.10",
-            "user": "your-user",
-            "password": "your-password"
+            "id": "prod",
+            "name": "Production",
+            "hosts": [
+                { "name": "Manager-1", "host": "192.168.1.10", "user": "your-user", "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519" }
+            ]
+        },
+        {
+            "id": "qa",
+            "name": "QA / Staging",
+            "hosts": [
+                { "name": "qa-manager-1", "host": "192.168.2.10", "user": "your-user", "key_file": "/opt/PegaProx/plugins/docker_swarm/.ssh/id_ed25519" }
+            ]
         }
     ],
     "poll_interval": 30
 }
 ```
 
-You can add multiple hosts for redundancy. The plugin uses the first available manager.
+Within a cluster you can list multiple hosts for redundancy — the plugin uses the
+first reachable manager. Each cluster is fully isolated (its own SSH routing and
+cache). Cluster `id` must be stable and unique.
+
+**Legacy single-cluster** — a flat top-level `swarm_hosts` list (no `clusters`)
+still works and is surfaced as one cluster with id `default`:
+
+```json
+{ "swarm_hosts": [ { "name": "Manager-1", "host": "192.168.1.10", "user": "your-user", "password": "your-password" } ], "poll_interval": 30 }
+```
 
 ## Architecture
 

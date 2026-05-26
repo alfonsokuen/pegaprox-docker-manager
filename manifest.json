@@ -2,7 +2,7 @@
     "name": "Docker Manager",
     "version": "2.1.0",
     "author": "IDKMANAGER",
-    "description": "Manage Docker hosts (Swarm clusters or standalone engines) from PegaProx. Containers, images, networks, volumes, logs, and — when Swarm is active — nodes, services, stacks, balance, audit and webhooks.",
+    "description": "Manage one or more Docker hosts (Swarm clusters or standalone engines) from PegaProx. Switch between clusters from the UI. Containers, images, networks, volumes, logs, and — when Swarm is active — nodes, services, stacks, balance, audit and webhooks.",
     "min_pegaprox": "0.9.9.3",
     "homepage": "",
     "license": "MIT",

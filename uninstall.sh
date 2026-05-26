@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# PegaProx Docker Swarm Manager Plugin — Uninstaller (v1.16.0+)
+# PegaProx Docker Manager Plugin — Uninstaller (v1.16.0+)
 # ============================================================================
 # Usage: sudo bash /opt/PegaProx/plugins/docker_swarm/uninstall.sh
 # ============================================================================

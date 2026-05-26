@@ -39,7 +39,7 @@ fi
 cat > "$PATH_UNIT" << EOF
 [Unit]
 Description=Watch PegaProx nginx config for rewrites and re-apply DS fixes
-Documentation=https://github.com/alfonsokuen/pegaprox-docker-swarm
+Documentation=https://github.com/alfonsokuen/pegaprox-docker-manager
 After=nginx.service
 
 [Path]

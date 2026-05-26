@@ -4,52 +4,38 @@ All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
 
-## [2.1.0] — 2026-05-26
+## [2.1.0] — 2026-05-22
 
-Bilingual UI (English + Spanish) and a privacy fix. The frontend was authored
-entirely in Spanish and ignored the operator's PegaProx language; on a customer
-install (UltraCORP) this surfaced both as wrong-language labels and as a leak of
-IDK's internal infrastructure baked into the Settings placeholders.
+Multi-cluster support. The plugin can now manage **several Docker clusters** from
+one install and switch between them in the UI — built so IDKmanager can drive
+both the production Swarm (IAS01/02/03) and the QA/staging Swarm
+(qaserver01/02/03) from the same PegaProx.
 
-### Added — i18n (English + Spanish)
+### Added
+- **`clusters` config shape** — `{"clusters": [{"id","name","hosts":[...]}], ...}`.
+  Each cluster has its own SSH host list. The legacy flat `swarm_hosts` list is
+  still accepted and surfaced as a single cluster with id `default` (fully
+  backwards compatible — existing installs need no config change).
+- **`GET /clusters`** endpoint — lists configured clusters with node count and
+  per-cluster engine mode; drives the UI selector.
+- **Cluster selector** in the header (shown only when >1 cluster is configured).
+  Switching reloads the active tab and re-probes engine mode for that cluster.
+- **Cluster-aware Settings tab** — add/remove clusters, edit each cluster's hosts
+  (now including the `key_file` field), test connections per host.
+- `?cluster=<id>` query param / `cluster` body field accepted on every endpoint.
 
-- New translation layer in `swarm.html`: a `detectLang()` resolver, a 246-entry
-  `I18N` Spanish→English dictionary, and a `t(key, params)` helper with
-  `{name}`-style interpolation. Spanish source strings are the dictionary KEYS,
-  so any unmapped string degrades gracefully to readable Spanish instead of a
-  missing-key placeholder.
-- **Locale auto-detection.** PegaProx exposes no documented API to hand a plugin
-  its chosen locale, so detection is layered and defensive: `?lang=` query param
-  → our own `docker_swarm_lang` override → the PegaProx core locale read from the
-  parent/top window's `localStorage` (same-origin; tries `locale`, `lang`,
-  `language`, `i18nextLng`, `pegaprox_locale`, … ) → parent `<html lang>` →
-  `navigator.language` → default `en`.
-- **Explicit ES/EN toggle** in the top bar (next to Refresh) that always wins and
-  persists to `localStorage`, so the language is correct regardless of how
-  PegaProx stores its own preference.
-- All ~200 user-visible strings across every tab (Dashboard, Nodes, Services,
-  Service detail, Stacks, Containers, Networks, Volumes, Images, Settings, Load
-  Balance, Trends, Audit), plus toasts, confirms, modals, table headers,
-  placeholders and tooltips, now render through `t()`.
-
-### Fixed — internal-config leak (privacy)
-
-- The Settings → Swarm Hosts form shipped placeholders hardcoded with IDK's real
-  production values (`IASERVER01`, `190.160.10.129`, `alfonso`). On any customer
-  install these rendered as ghost text in the empty fields. Replaced with generic
-  examples (`e.g. swarm-manager-1` / `e.g. 192.168.1.10` / `e.g. ssh-user`),
-  themselves translated. `config.example.json` was already clean; this was
-  frontend-only.
+### Changed
+- All Docker command routing, the background poll cycle, disk auto-prune, the
+  load-balance fan-out and the smart-rebalance worker are now **scoped to the
+  active cluster**. Each runs against the right host list.
+- **Per-cluster cache isolation** — cache keys (incl. the engine-mode probe) are
+  namespaced by cluster id, so refreshing/invalidating one cluster never serves
+  or wipes another cluster's data.
 
 ### Notes
-
-- No backend, API, plugin id, or endpoint changes — `docker_swarm` upgrades in
-  place (`git pull` + `systemctl restart pegaprox`). The auto-patch persistence
-  layer is unaffected (this release touches only the served static `swarm.html`
-  plus manifest/README/changelog).
-- Verified: esbuild JSX parse clean, dictionary has no duplicate keys, headless
-  SSR render of the full component tree in both locales (English vs Spanish
-  output confirmed, no render-time exceptions).
+- Thread-pool workers and detached worker threads (background poll, rebalance
+  job) are explicitly re-pinned to their cluster, since Python thread-locals do
+  not propagate across threads.
 
 ## [2.0.0] — 2026-05-09
 
