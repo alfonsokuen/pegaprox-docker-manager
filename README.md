@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.0-blue" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-2.3.0-blue" alt="Version"/>
   <img src="https://img.shields.io/badge/pegaprox-0.9.9.3+-orange" alt="PegaProx"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License"/>
   <img src="https://img.shields.io/badge/python-3.10+-yellow" alt="Python"/>
@@ -65,6 +65,7 @@ Born from [Feature Request #152](https://github.com/PegaProx/project-pegaprox/is
 | **Settings** | Configure SSH hosts, test connections, set polling interval |
 | **Audit** | Grade every service A–F against 10 best-practice policies (anti-affinity, reservations, image pinning, healthcheck, …) with per-finding fix hints |
 | **Trends** | 30-day rolling history of per-node CPU/RAM/tasks. Sparklines on Balance cards + dedicated Tendencias tab with 1h/6h/24h/7d/30d windows |
+| **Theming** | Inherits the host theme. When PegaProx embeds the plugin with `?theme=cloud` (Modern view), the UI repaints itself with the Cloud design tokens (deep-blue surfaces, cyan accent, rounded cards); otherwise it keeps its built-in dark theme |
 
 ## Installation
 

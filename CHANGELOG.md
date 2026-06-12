@@ -4,6 +4,15 @@ All notable changes to the PegaProx Docker Manager plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This
 project follows Semantic Versioning.
 
+## [2.3.0] — 2026-06-12
+
+Cloud (Modern view) theme support. When PegaProx embeds the plugin with
+`?theme=cloud`, the frontend repaints itself with the Modern view design tokens
+(deep-blue surfaces, cyan accent, rounded cards) so it blends into the new
+layout instead of showing its standalone dark-orange skin. Absent/unknown theme
+keeps the built-in dark theme. Pure additive CSS + a pre-paint theme hook; no
+behaviour or API change.
+
 ## [2.2.0] — 2026-05-26
 
 Bilingual UI (English + Spanish) and a privacy fix, layered on top of the
